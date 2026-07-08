@@ -1,171 +1,335 @@
-```
+```text
   ___  ____  _   _ ____  ____   ___ _____ ____
  / _ \|  _ \| | | / ___|| __ ) / _ \_   _/ ___|
 | | | | |_) | | | \___ \|  _ \| | | || | \___ \
 | |_| |  __/| |_| |___) | |_) | |_| || |  ___) |
- \___/|_|    \___/|____/|____/ \___/ |_| |____/
+ \___/|_|    \___/|____/|_____/ \___/ |_| |____/
 ```
 
-Three single-purpose Telegram bots for a homelab, sharing one Docker image
-and one live-editable config, managed from a small web UI instead of
-hardcoded values in each script.
+# OpusBots
 
-  mirror-bot     torrents only        magnet/torrent link -> qBittorrent
-  downloads-bot  movies only          video upload or YouTube link -> movies path
-  music-bot      music only           YouTube link/search -> MP3/FLAC -> music path
+Self-hosted Telegram bots for media automation, downloads, and homelab workflows.
 
-Each bot has exactly one job. Nothing is duplicated between them.
+OpusBots consists of three focused Telegram bots and a lightweight web administration panel. Each bot has a single responsibility, shares a common configuration system, and runs from a single Docker image.
 
+No hardcoded secrets. No duplicated logic. No giant "does everything" bot.
 
-## Layout
+---
 
+## Architecture
+
+```text
+                    Telegram
+
+                        │
+         ┌──────────────┼──────────────┐
+         │              │              │
+         ▼              ▼              ▼
+
+    Mirror Bot    Downloads Bot    Music Bot
+         │              │              │
+         ▼              ▼              ▼
+
+   qBittorrent      Movies Path    Music Path
+                                        │
+                                        ▼
+                                   Background
+                                      Queue
+
+                        ▲
+                        │
+                   Config Web
+                        │
+                        ▼
+                  config.json
 ```
-docker-compose.yml        build-from-source compose (3 bots + config-web)
-docker-compose.ghcr.yml   deploy-only compose, pulls prebuilt GHCR images
-Dockerfile.bot             single image (python + yt-dlp + ffmpeg baked in)
-shared/config.py           config.json read/write, shared by bots + web UI
-shared/tgbot.py            Telegram API helpers + generic long-poll loop
-bots/mirror_bot.py         torrents -> qBittorrent
-bots/downloads_bot.py      movies only (video upload / YouTube download)
-bots/music_bot.py          music only (YouTube -> MP3/FLAC, search, playlists)
-config-web/                 Flask admin page (login + settings form + restart)
-config/config.json          generated on first run -- your live settings live here
-.env                        config-web login credentials (copy from .env.example)
+
+---
+
+## Features
+
+- Three dedicated Telegram bots
+- Single Docker image for all bots
+- Live configuration updates
+- Web-based administration panel
+- qBittorrent integration
+- YouTube downloads via yt-dlp
+- MP3 and FLAC music downloads
+- Playlist support
+- Background music download queue
+- Docker Compose deployment
+- GHCR container publishing
+- Portainer and Dockge compatible
+
+---
+
+## Bots
+
+### Mirror Bot
+
+Torrent automation only.
+
+Supported:
+
+- Magnet links
+- Torrent links
+- qBittorrent integration
+- Auto categorization
+- Download monitoring
+
+Commands:
+
+```text
+/status
+/downloading
+/pause
+/resume
 ```
 
+---
 
-## First-time setup
+### Downloads Bot
 
-1. `cp .env.example .env` and fill in ADMIN_USER, ADMIN_PASS, a random
-   FLASK_SECRET_KEY, and optionally MEDIA_ROOT (the host folder holding your
-   Movies/Music/Downloads -- defaults to /tank if not set).
-2. `docker compose up -d --build`
-3. Open `http://<server-ip>:8090`, log in, and fill in:
-   - the three Telegram bot tokens (from @BotFather -- three separate bots,
-     same as before)
-   - your allowed Telegram user ID
-   - qBittorrent host/user/password
-   - the three media paths (torrent downloads, movies, music)
-4. Click "save changes". The bots poll config/config.json roughly every
-   15 seconds, so they pick up new values on their own -- no restart needed
-   for normal edits. The restart buttons are for edge cases like a hung
-   process or an image rebuild.
+Movie downloads only.
 
-Put config-web behind your existing Cloudflare Access policy (or just don't
-expose port 8090 publicly) -- it holds your qBittorrent password and
-Telegram tokens, and its restart buttons work by mounting
-/var/run/docker.sock, which is effectively root-equivalent access to the
-host. Treat it like any other admin panel with docker.sock access (same
-tier as Portainer).
+Supported:
 
+- Telegram video uploads
+- YouTube video downloads
+- Resolution selection
+- Direct save to movies library
 
-## What each bot does (and does not do)
+Commands:
 
-mirror-bot
-  - send a magnet/torrent link -> added to qBittorrent
-  - auto-categorizes as movie or TV based on filename (season/episode
-    keywords) for Sonarr/Radarr to pick up from qBittorrent's completed
-    folder -- that sorting happens outside these bots entirely
-  - /status, /downloading, /pause, /resume
+```text
+/status
+```
 
-downloads-bot (movies only)
-  - upload a video file -> saved straight to the movies path
-  - paste a YouTube link -> pick a resolution -> saved straight to the
-    movies path
-  - no audio handling at all, no folder picker (there's only one
-    destination now), no TV handling
-  - /status shows active downloads, movies disk space, and recent history
+---
 
-music-bot (music only)
-  - /yt URL, /flac URL, /playlist URL, /search "artist - song", or just
-    paste a link
-  - MP3 or FLAC, embedded thumbnail/metadata, organized by
-    uploader/album/title
-  - a real background queue: requests made while something is already
-    downloading now actually run once the current one finishes, instead
-    of silently piling up (this was broken in the original script)
+### Music Bot
 
+Music downloads only.
 
-## Publishing to GHCR (GitHub Container Registry)
+Supported:
 
-This lets anyone deploy via Portainer/Dockge by pasting a compose file --
-no git clone, no build step on the target machine.
+```text
+/yt
+/flac
+/playlist
+/search
+```
 
-1. Push the code to GitHub:
+Features:
 
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/<you>/opusbots.git
-   git push -u origin main
+- MP3 output
+- FLAC output
+- Embedded metadata
+- Embedded artwork
+- Playlist downloads
+- Background queue processing
+- Automatic folder organization
 
-   .env and config/config.json are already in .gitignore -- secrets never
-   get committed.
+---
 
-2. .github/workflows/docker-publish.yml is already in the repo. On push to
-   main it builds and pushes:
-     ghcr.io/<you>/opusbots-bot:latest
-     ghcr.io/<you>/opusbots-config-web:latest
-   Also tagged by branch, git SHA, and semver on a v1.2.3-style tag. No
-   setup needed -- it uses the repo's built-in GITHUB_TOKEN. Watch it run
-   under the repo's Actions tab.
+## Directory Layout
 
-3. Optional: make the packages public so anyone can pull without logging
-   in. Go to github.com/<you>?tab=packages, open opusbots-bot -> package
-   settings -> change visibility -> public. Repeat for
-   opusbots-config-web. Otherwise, `docker login ghcr.io` with a PAT
-   (read:packages scope) on the deploy machine.
+```text
+docker-compose.yml
+docker-compose.ghcr.yml
+Dockerfile.bot
 
-4. Deploy with docker-compose.ghcr.yml (no build blocks, only image
-   references):
+bots/
+├── mirror_bot.py
+├── downloads_bot.py
+└── music_bot.py
 
-   Portainer:
-     - Stacks -> Add stack
-     - Repository (paste your repo URL, compose path
-       docker-compose.ghcr.yml) or Web editor (paste the file directly)
-     - Environment variables: GHCR_OWNER, MEDIA_ROOT, ADMIN_USER,
-       ADMIN_PASS, FLASK_SECRET_KEY, optionally IMAGE_TAG
-     - Deploy, then configure via the web UI on port 8090
+shared/
+├── config.py
+└── tgbot.py
 
-   Dockge:
-     - + Compose -> paste docker-compose.ghcr.yml
-     - fill in the same variables in Dockge's per-stack .env editor
-     - deploy, then configure via the web UI on port 8090
+config-web/
 
-Updating later: push to main -> Actions rebuilds :latest -> on the deploy
-box:
+config/
+└── config.json
 
-   docker compose -f docker-compose.ghcr.yml pull
-   docker compose -f docker-compose.ghcr.yml up -d
+.env
+```
 
-Portainer's "re-pull and redeploy" and Dockge's pull+restart buttons do
-the same thing.
+---
 
+## Quick Start
 
-## On lossless music (SpotiFLAC, etc.)
+Create the stack:
 
-Some third-party "get Spotify tracks in FLAC" tools work by pulling the
-actual audio stream from paid services (Tidal/Qobuz/Amazon/Deezer) through
-unofficial API mirrors, without an account -- that's routing around those
-services' subscription and access controls, not a legitimate download
-path, so it isn't wired into this project. yt-dlp against YouTube is used
-instead, with a real ceiling: YouTube only ever serves lossy AAC, so true
-FLAC from YouTube isn't possible either way. For genuinely lossless files,
-rip discs you own, buy from Bandcamp, or use your own paid streaming app's
-official offline download.
+```bash
+git clone https://github.com/lucif3r-d3vil/opusbots.git
+cd opusbots
 
+cp .env.example .env
+```
 
-## Known limitation carried over from earlier
+Generate a secret:
 
-None currently -- the music bot's queue-draining bug from the original
-scripts has been fixed (see "music-bot" above).
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
 
+Update:
 
-## Adding a fourth bot later
+```env
+ADMIN_USER=admin
+ADMIN_PASS=changeme
+FLASK_SECRET_KEY=<generated-secret>
+```
 
-Copy one of the bots/*.py files as a template, add its token key to
-DEFAULT_CONFIG in shared/config.py (and to the web form in
-config-web/templates/config.html), then add a new service block to both
-compose files using the same Dockerfile.bot image with a different
-command.
+Start:
+
+```bash
+docker compose up -d --build
+```
+
+Open:
+
+```text
+http://<server-ip>:8090
+```
+
+Login and configure:
+
+- Telegram Bot Tokens
+- Telegram User ID
+- qBittorrent Credentials
+- Media Paths
+
+Bots automatically reload configuration changes.
+
+---
+
+## Media Layout
+
+Recommended:
+
+```text
+/tank
+├── Downloads
+│   └── Completed
+├── Movies
+├── TV
+├── Music
+└── Musictemp
+```
+
+Typical workflow:
+
+```text
+Music Bot
+    ↓
+/tank/Musictemp
+    ↓
+Beets
+    ↓
+/tank/Music
+    ↓
+Navidrome
+```
+
+---
+
+## Deploy with GHCR
+
+Pull prebuilt images:
+
+```bash
+docker pull ghcr.io/lucif3r-d3vil/opusbots-bot:latest
+docker pull ghcr.io/lucif3r-d3vil/opusbots-config-web:latest
+```
+
+Or deploy with:
+
+```bash
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Supported:
+
+- Docker
+- Dockge
+- Portainer
+- Debian
+- Ubuntu
+- Proxmox
+- TrueNAS SCALE
+
+---
+
+## Updating
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+View logs:
+
+```bash
+docker logs -f mirror-bot
+docker logs -f downloads-bot
+docker logs -f music-bot
+docker logs -f config-web
+```
+
+---
+
+## Security Notes
+
+The web interface stores:
+
+- Telegram bot tokens
+- qBittorrent credentials
+- Media paths
+
+The restart functionality requires:
+
+```text
+/var/run/docker.sock
+```
+
+which grants root-equivalent Docker access.
+
+Recommendations:
+
+- Keep the UI behind Cloudflare Access
+- Use Tailscale or a VPN
+- Do not expose port 8090 publicly
+- Use strong administrator credentials
+
+---
+
+## Adding More Bots
+
+Create a new bot module:
+
+```text
+bots/new_bot.py
+```
+
+Add configuration defaults:
+
+```text
+shared/config.py
+```
+
+Add fields to:
+
+```text
+config-web/templates/config.html
+```
+
+Then create a new service using the same Docker image.
+
+---
+
+## License
+
+MIT
