@@ -72,7 +72,6 @@ def save():
 
     cfg["paths"]["downloads_completed"] = request.form.get("path_downloads_completed", "").strip()
     cfg["paths"]["movies"] = request.form.get("path_movies", "").strip()
-    cfg["paths"]["tv"] = request.form.get("path_tv", "").strip()
     cfg["paths"]["music"] = request.form.get("path_music", "").strip()
 
     save_config(cfg)

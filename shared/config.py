@@ -26,10 +26,9 @@ DEFAULT_CONFIG = {
         "pass": "",
     },
     "paths": {
-        "downloads_completed": "/mnt/tank/Downloads/Completed",
-        "movies": "/mnt/tank/Movies",
-        "tv": "/mnt/tank/TV",
-        "music": "/mnt/tank/Music",
+        "downloads_completed": "/tank/Downloads/Completed",
+        "movies": "/tank/Movies",
+        "music": "/tank/Music",
     },
 }
 

@@ -1,3 +1,11 @@
+# Build-from-source compose file -- builds the images locally instead of
+# pulling from GHCR. Use docker-compose.ghcr.yml instead if you just want to
+# run prebuilt images (that's what Portainer/Dockge stacks should use).
+#
+# MEDIA_ROOT is the folder on YOUR host that holds Movies/, Music/, and
+# Downloads/ -- set it in .env, e.g. MEDIA_ROOT=/tank or MEDIA_ROOT=/mnt/tank.
+# Defaults to /tank if not set.
+
 services:
   mirror-bot:
     build:
@@ -8,7 +16,7 @@ services:
     command: ["python", "bots/mirror_bot.py"]
     volumes:
       - ./config:/config
-      - /mnt/tank:/mnt/tank
+      - ${MEDIA_ROOT:-/tank}:/tank
     environment:
       - PYTHONUNBUFFERED=1
 
@@ -21,7 +29,7 @@ services:
     command: ["python", "bots/downloads_bot.py"]
     volumes:
       - ./config:/config
-      - /mnt/tank:/mnt/tank
+      - ${MEDIA_ROOT:-/tank}:/tank
     environment:
       - PYTHONUNBUFFERED=1
 
@@ -34,7 +42,7 @@ services:
     command: ["python", "bots/music_bot.py"]
     volumes:
       - ./config:/config
-      - /mnt/tank:/mnt/tank
+      - ${MEDIA_ROOT:-/tank}:/tank
     environment:
       - PYTHONUNBUFFERED=1
 
@@ -49,7 +57,7 @@ services:
     volumes:
       - ./config:/config
       # Needed so the Restart buttons can control the bot containers.
-      # This grants config-web root-equivalent access to the Docker host —
+      # This grants config-web root-equivalent access to the Docker host --
       # keep this page behind your Cloudflare Access / LAN-only setup.
       - /var/run/docker.sock:/var/run/docker.sock
     env_file:

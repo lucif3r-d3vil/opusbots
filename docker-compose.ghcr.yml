@@ -1,47 +1,48 @@
-# Deploy-only compose file — pulls prebuilt images from GHCR instead of
+# Deploy-only compose file -- pulls prebuilt images from GHCR instead of
 # building locally. Use this one in Portainer / Dockge / any stack manager.
 #
-# Set GHCR_OWNER (and optionally IMAGE_TAG) as stack environment variables,
-# or drop a .env file next to this file with:
-#   GHCR_OWNER=yourusername
-#   IMAGE_TAG=latest
+# Set these as stack environment variables (or a .env file next to this file):
+#   GHCR_OWNER   your GitHub username, e.g. lucif3r-d3vil
+#   MEDIA_ROOT   folder on the host with Movies/, Music/, Downloads/ (default: /tank)
+#   ADMIN_USER, ADMIN_PASS, FLASK_SECRET_KEY   for the config-web login
+#   IMAGE_TAG    optional, defaults to "latest"
 
 services:
   mirror-bot:
-    image: ghcr.io/${GHCR_OWNER}/telegram-bots-bot:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER}/opusbots-bot:${IMAGE_TAG:-latest}
     container_name: mirror-bot
     restart: unless-stopped
     command: ["python", "bots/mirror_bot.py"]
     volumes:
       - ./config:/config
-      - /mnt/tank:/mnt/tank
+      - ${MEDIA_ROOT:-/tank}:/tank
     environment:
       - PYTHONUNBUFFERED=1
 
   downloads-bot:
-    image: ghcr.io/${GHCR_OWNER}/telegram-bots-bot:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER}/opusbots-bot:${IMAGE_TAG:-latest}
     container_name: downloads-bot
     restart: unless-stopped
     command: ["python", "bots/downloads_bot.py"]
     volumes:
       - ./config:/config
-      - /mnt/tank:/mnt/tank
+      - ${MEDIA_ROOT:-/tank}:/tank
     environment:
       - PYTHONUNBUFFERED=1
 
   music-bot:
-    image: ghcr.io/${GHCR_OWNER}/telegram-bots-bot:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER}/opusbots-bot:${IMAGE_TAG:-latest}
     container_name: music-bot
     restart: unless-stopped
     command: ["python", "bots/music_bot.py"]
     volumes:
       - ./config:/config
-      - /mnt/tank:/mnt/tank
+      - ${MEDIA_ROOT:-/tank}:/tank
     environment:
       - PYTHONUNBUFFERED=1
 
   config-web:
-    image: ghcr.io/${GHCR_OWNER}/telegram-bots-config-web:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER}/opusbots-config-web:${IMAGE_TAG:-latest}
     container_name: config-web
     restart: unless-stopped
     ports:
@@ -49,7 +50,7 @@ services:
     volumes:
       - ./config:/config
       # Needed so the Restart buttons can control the bot containers.
-      # This grants config-web root-equivalent access to the Docker host —
+      # This grants config-web root-equivalent access to the Docker host --
       # keep this page behind Cloudflare Access / LAN-only / a strong password.
       - /var/run/docker.sock:/var/run/docker.sock
     environment:

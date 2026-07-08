@@ -2,36 +2,85 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>HomeLab Bots — Login</title>
+<title>opusbots // login</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, sans-serif; background: #12141a; color: #e8e8ea;
-         display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-  .card { background: #1c1f27; padding: 2.5rem; border-radius: 12px; width: 320px; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
-  h1 { font-size: 1.2rem; margin: 0 0 1.5rem; color: #fff; }
-  label { display: block; font-size: .85rem; margin-bottom: .3rem; color: #9aa0ac; }
-  input { width: 100%; padding: .6rem; margin-bottom: 1rem; border-radius: 6px; border: 1px solid #333844;
-          background: #12141a; color: #fff; box-sizing: border-box; font-size: .95rem; }
-  button { width: 100%; padding: .7rem; border: none; border-radius: 6px; background: #4f7cff; color: #fff;
-           font-size: .95rem; cursor: pointer; }
-  button:hover { background: #3f68e0; }
-  .flash { padding: .6rem .8rem; border-radius: 6px; margin-bottom: 1rem; font-size: .85rem; }
-  .flash.error { background: #3a1d22; color: #ff9a9a; }
+  :root {
+    --bg: #0c0d10;
+    --panel: #111318;
+    --line: #23262e;
+    --text: #d7dae0;
+    --muted: #63697a;
+    --accent: #5eead4;
+    --error: #f47174;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  .card {
+    width: 300px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1.75rem;
+    background: var(--panel);
+  }
+  .brand {
+    font-size: 1rem;
+    letter-spacing: .15em;
+    color: var(--text);
+    margin-bottom: .15rem;
+  }
+  .brand::after {
+    content: "_";
+    color: var(--accent);
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .tagline { font-size: .72rem; color: var(--muted); margin-bottom: 1.5rem; }
+  label {
+    display: block; font-size: .68rem; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); margin-bottom: .3rem;
+  }
+  input {
+    width: 100%; padding: .5rem .1rem; margin-bottom: 1.1rem;
+    background: transparent; color: var(--text);
+    border: none; border-bottom: 1px solid var(--line);
+    font-family: inherit; font-size: .9rem; outline: none;
+  }
+  input:focus { border-bottom-color: var(--accent); }
+  button {
+    width: 100%; padding: .55rem; margin-top: .2rem;
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 3px;
+    font-family: inherit; font-size: .82rem; letter-spacing: .05em;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent); color: #0c0d10; }
+  .flash {
+    font-size: .75rem; padding: .5rem .6rem; margin-bottom: 1rem;
+    border-left: 2px solid var(--error); color: var(--error);
+    background: rgba(244, 113, 116, .08);
+  }
 </style>
 </head>
 <body>
   <div class="card">
-    <h1>🏠 HomeLab Bots</h1>
+    <div class="brand">opusbots</div>
+    <div class="tagline">homelab bot control</div>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
-        <div class="flash {{ category }}">{{ message }}</div>
+        <div class="flash">{{ message }}</div>
       {% endfor %}
     {% endwith %}
     <form method="post">
-      <label for="username">Username</label>
-      <input type="text" id="username" name="username" autocomplete="username" required>
-      <label for="password">Password</label>
+      <label for="username">user</label>
+      <input type="text" id="username" name="username" autocomplete="username" autofocus required>
+      <label for="password">pass</label>
       <input type="password" id="password" name="password" autocomplete="current-password" required>
-      <button type="submit">Sign in</button>
+      <button type="submit">sign in</button>
     </form>
   </div>
 </body>
