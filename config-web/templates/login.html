@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HomeLab Bots — Login</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, sans-serif; background: #12141a; color: #e8e8ea;
+         display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+  .card { background: #1c1f27; padding: 2.5rem; border-radius: 12px; width: 320px; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+  h1 { font-size: 1.2rem; margin: 0 0 1.5rem; color: #fff; }
+  label { display: block; font-size: .85rem; margin-bottom: .3rem; color: #9aa0ac; }
+  input { width: 100%; padding: .6rem; margin-bottom: 1rem; border-radius: 6px; border: 1px solid #333844;
+          background: #12141a; color: #fff; box-sizing: border-box; font-size: .95rem; }
+  button { width: 100%; padding: .7rem; border: none; border-radius: 6px; background: #4f7cff; color: #fff;
+           font-size: .95rem; cursor: pointer; }
+  button:hover { background: #3f68e0; }
+  .flash { padding: .6rem .8rem; border-radius: 6px; margin-bottom: 1rem; font-size: .85rem; }
+  .flash.error { background: #3a1d22; color: #ff9a9a; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🏠 HomeLab Bots</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    <form method="post">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>

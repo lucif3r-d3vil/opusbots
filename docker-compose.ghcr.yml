@@ -1,0 +1,58 @@
+# Deploy-only compose file — pulls prebuilt images from GHCR instead of
+# building locally. Use this one in Portainer / Dockge / any stack manager.
+#
+# Set GHCR_OWNER (and optionally IMAGE_TAG) as stack environment variables,
+# or drop a .env file next to this file with:
+#   GHCR_OWNER=yourusername
+#   IMAGE_TAG=latest
+
+services:
+  mirror-bot:
+    image: ghcr.io/${GHCR_OWNER}/telegram-bots-bot:${IMAGE_TAG:-latest}
+    container_name: mirror-bot
+    restart: unless-stopped
+    command: ["python", "bots/mirror_bot.py"]
+    volumes:
+      - ./config:/config
+      - /mnt/tank:/mnt/tank
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  downloads-bot:
+    image: ghcr.io/${GHCR_OWNER}/telegram-bots-bot:${IMAGE_TAG:-latest}
+    container_name: downloads-bot
+    restart: unless-stopped
+    command: ["python", "bots/downloads_bot.py"]
+    volumes:
+      - ./config:/config
+      - /mnt/tank:/mnt/tank
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  music-bot:
+    image: ghcr.io/${GHCR_OWNER}/telegram-bots-bot:${IMAGE_TAG:-latest}
+    container_name: music-bot
+    restart: unless-stopped
+    command: ["python", "bots/music_bot.py"]
+    volumes:
+      - ./config:/config
+      - /mnt/tank:/mnt/tank
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  config-web:
+    image: ghcr.io/${GHCR_OWNER}/telegram-bots-config-web:${IMAGE_TAG:-latest}
+    container_name: config-web
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./config:/config
+      # Needed so the Restart buttons can control the bot containers.
+      # This grants config-web root-equivalent access to the Docker host —
+      # keep this page behind Cloudflare Access / LAN-only / a strong password.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASS=${ADMIN_PASS:?set ADMIN_PASS in the stack environment}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY in the stack environment}

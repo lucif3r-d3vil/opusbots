@@ -1,0 +1,56 @@
+services:
+  mirror-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: mirror-bot
+    restart: unless-stopped
+    command: ["python", "bots/mirror_bot.py"]
+    volumes:
+      - ./config:/config
+      - /mnt/tank:/mnt/tank
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  downloads-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: downloads-bot
+    restart: unless-stopped
+    command: ["python", "bots/downloads_bot.py"]
+    volumes:
+      - ./config:/config
+      - /mnt/tank:/mnt/tank
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  music-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: music-bot
+    restart: unless-stopped
+    command: ["python", "bots/music_bot.py"]
+    volumes:
+      - ./config:/config
+      - /mnt/tank:/mnt/tank
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  config-web:
+    build:
+      context: .
+      dockerfile: config-web/Dockerfile
+    container_name: config-web
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./config:/config
+      # Needed so the Restart buttons can control the bot containers.
+      # This grants config-web root-equivalent access to the Docker host —
+      # keep this page behind your Cloudflare Access / LAN-only setup.
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env
