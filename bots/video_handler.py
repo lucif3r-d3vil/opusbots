@@ -110,7 +110,7 @@ def build_resolution_keyboard(formats, query_id):
     return tgbot.inline_keyboard(rows)
 
 
-def download_video_task(token, cfg, url, fmt_id, res_label, title_safe, chat_id, msg_id=None):
+def download_video_task(token, cfg, url, fmt_id, res_label, title_safe, chat_id, msg_id=None, height=None):
     """Execute video download and move to Movies directory."""
     download_id = f"{chat_id}_{int(time.time())}"
     dest_folder = cfg["paths"]["movies"]
@@ -135,11 +135,18 @@ def download_video_task(token, cfg, url, fmt_id, res_label, title_safe, chat_id,
         msg_id = tgbot.send(token, chat_id, status_text)
 
     temp_template = f"/tmp/ytdl_vid_{download_id}.%(ext)s"
+    # NOTE: the fallback selector must use the *height*, not the format id.
+    # Format ids are site specific ("137", "h264-1080", "video=1"), so splicing
+    # one into "best[height<=...]" produced an invalid selector on many sites.
+    selector = f"{fmt_id}+bestaudio/best"
+    if height:
+        selector = f"{fmt_id}+bestaudio/bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
     cmd = [
         "yt-dlp",
         "--no-playlist",
-        "-f", f"{fmt_id}+bestaudio/best[height<={fmt_id}]/best",
+        "-f", selector,
         "--merge-output-format", "mp4",
+        "--newline",
         "-o", temp_template,
         url,
     ]
@@ -225,11 +232,11 @@ def download_video_task(token, cfg, url, fmt_id, res_label, title_safe, chat_id,
                     pass
 
 
-def start_video_download(token, cfg, url, fmt_id, res_label, title_safe, chat_id, msg_id=None):
+def start_video_download(token, cfg, url, fmt_id, res_label, title_safe, chat_id, msg_id=None, height=None):
     """Spawn background thread for video download."""
     t = threading.Thread(
         target=download_video_task,
-        args=(token, cfg, url, fmt_id, res_label, title_safe, chat_id, msg_id),
+        args=(token, cfg, url, fmt_id, res_label, title_safe, chat_id, msg_id, height),
         daemon=True,
     )
     t.start()

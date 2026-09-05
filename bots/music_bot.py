@@ -4,7 +4,6 @@ All torrent mirroring, movie downloads, and music workflows are now handled
 by a single bot in bots/opus_bot.py.
 """
 
-import sys
 from bots.opus_bot import main
 
 if __name__ == "__main__":
