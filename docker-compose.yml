@@ -1,50 +1,24 @@
-# Build-from-source compose file -- builds the images locally instead of
-# pulling from GHCR. Use docker-compose.ghcr.yml instead if you just want to
-# run prebuilt images (that's what Portainer/Dockge stacks should use).
+# OpusBots - Build-from-source Compose File
+# Builds images locally instead of pulling from GHCR.
 #
-# MEDIA_ROOT is the folder on YOUR host that holds Movies/, Music/, and
-# Downloads/ -- set it in .env, e.g. MEDIA_ROOT=/tank or MEDIA_ROOT=/mnt/tank.
+# MEDIA_ROOT is the folder on your host holding Downloads/, Movies/, and Music/.
+# Set it in .env, e.g. MEDIA_ROOT=/tank or MEDIA_ROOT=/mnt/storage.
 # Defaults to /tank if not set.
 
 services:
-  mirror-bot:
+  opus-bot:
     build:
       context: .
       dockerfile: Dockerfile.bot
-    container_name: mirror-bot
+    container_name: opus-bot
     restart: unless-stopped
-    command: ["python", "bots/mirror_bot.py"]
+    command: ["python", "bots/opus_bot.py"]
     volumes:
       - ./config:/config
       - ${MEDIA_ROOT:-/tank}:/tank
     environment:
       - PYTHONUNBUFFERED=1
-
-  downloads-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile.bot
-    container_name: downloads-bot
-    restart: unless-stopped
-    command: ["python", "bots/downloads_bot.py"]
-    volumes:
-      - ./config:/config
-      - ${MEDIA_ROOT:-/tank}:/tank
-    environment:
-      - PYTHONUNBUFFERED=1
-
-  music-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile.bot
-    container_name: music-bot
-    restart: unless-stopped
-    command: ["python", "bots/music_bot.py"]
-    volumes:
-      - ./config:/config
-      - ${MEDIA_ROOT:-/tank}:/tank
-    environment:
-      - PYTHONUNBUFFERED=1
+      - CONFIG_PATH=/config/config.json
 
   config-web:
     build:
@@ -56,9 +30,7 @@ services:
       - "8090:8090"
     volumes:
       - ./config:/config
-      # Needed so the Restart buttons can control the bot containers.
-      # This grants config-web root-equivalent access to the Docker host --
-      # keep this page behind your Cloudflare Access / LAN-only setup.
+      # Docker socket allows restarting the bot container from the web UI.
       - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env

@@ -2,15 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>opusbots // config</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>opusbots // control panel</title>
 <style>
   :root {
     --bg: #0c0d10;
     --panel: #111318;
+    --panel-header: #171a21;
     --line: #23262e;
     --text: #d7dae0;
     --muted: #63697a;
     --accent: #5eead4;
+    --accent-hover: #38bdf8;
     --error: #f47174;
     --ok: #8fe3a8;
   }
@@ -19,59 +22,88 @@
     margin: 0; background: var(--bg); color: var(--text); padding: 2.5rem 1rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
-  .wrap { max-width: 620px; margin: 0 auto; }
+  .wrap { max-width: 680px; margin: 0 auto; }
   .topbar { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .3rem; }
-  .brand { font-size: 1rem; letter-spacing: .15em; }
+  .brand { font-size: 1.15rem; letter-spacing: .15em; font-weight: bold; }
   .brand::after { content: "_"; color: var(--accent); }
-  a.logout { color: var(--muted); font-size: .72rem; text-decoration: none; }
+  .badge-single {
+    font-size: 0.65rem; background: rgba(94, 234, 212, 0.12); color: var(--accent);
+    padding: 0.2rem 0.5rem; border-radius: 3px; border: 1px solid rgba(94, 234, 212, 0.3);
+    margin-left: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  a.logout { color: var(--muted); font-size: .75rem; text-decoration: none; transition: color .2s; }
   a.logout:hover { color: var(--text); }
-  .tagline { font-size: .72rem; color: var(--muted); margin-bottom: 1.75rem; }
+  .tagline { font-size: .75rem; color: var(--muted); margin-bottom: 1.75rem; }
   .flash {
-    font-size: .75rem; padding: .5rem .6rem; margin-bottom: 1rem; border-left: 2px solid;
+    font-size: .78rem; padding: .65rem .8rem; margin-bottom: 1rem; border-left: 3px solid;
+    border-radius: 2px;
   }
   .flash.success { border-color: var(--ok); color: var(--ok); background: rgba(143,227,168,.08); }
   .flash.error { border-color: var(--error); color: var(--error); background: rgba(244,113,116,.08); }
+  
   .section {
-    border: 1px solid var(--line); border-radius: 4px; padding: 1.25rem 1.4rem;
-    margin-bottom: 1rem;
+    border: 1px solid var(--line); border-radius: 6px; padding: 1.35rem 1.5rem;
+    margin-bottom: 1.25rem; background: var(--panel);
+  }
+  .section-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem;
   }
   .section h2 {
-    font-size: .7rem; text-transform: uppercase; letter-spacing: .1em;
-    color: var(--muted); margin: 0 0 1rem; font-weight: normal;
+    font-size: .75rem; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--muted); margin: 0; font-weight: 600;
   }
   label {
-    display: block; font-size: .68rem; text-transform: uppercase;
-    letter-spacing: .08em; color: var(--muted); margin-bottom: .3rem;
+    display: block; font-size: .7rem; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); margin-bottom: .35rem;
   }
   input {
-    width: 100%; padding: .45rem .1rem; margin-bottom: 1rem;
+    width: 100%; padding: .5rem .2rem; margin-bottom: 1.1rem;
     background: transparent; color: var(--text);
     border: none; border-bottom: 1px solid var(--line);
-    font-family: inherit; font-size: .85rem; outline: none;
+    font-family: inherit; font-size: .88rem; outline: none; transition: border-color .2s;
   }
   input:focus { border-bottom-color: var(--accent); }
   .row { display: flex; gap: 1rem; }
   .row > div { flex: 1; }
-  .hint { font-size: .68rem; color: var(--muted); margin-top: -.6rem; margin-bottom: 1rem; }
-  button {
-    padding: .5rem 1rem; background: transparent; border-radius: 3px;
+  .hint { font-size: .7rem; color: var(--muted); margin-top: -.7rem; margin-bottom: 1.1rem; }
+  
+  button, .btn {
+    padding: .5rem 1rem; background: transparent; border-radius: 4px;
     font-family: inherit; font-size: .78rem; letter-spacing: .04em; cursor: pointer;
+    transition: all .2s ease;
   }
   .btn-primary { color: var(--accent); border: 1px solid var(--accent); }
   .btn-primary:hover { background: var(--accent); color: #0c0d10; }
   .btn-ghost { color: var(--muted); border: 1px solid var(--line); }
   .btn-ghost:hover { border-color: var(--muted); color: var(--text); }
-  .restart-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .btn-test {
+    font-size: .68rem; padding: .25rem .6rem; border: 1px solid var(--line);
+    color: var(--muted); background: transparent; cursor: pointer; border-radius: 3px;
+  }
+  .btn-test:hover { border-color: var(--accent); color: var(--accent); }
+  
+  .test-result {
+    font-size: .72rem; padding: .4rem .6rem; margin-bottom: 1rem; border-radius: 3px;
+    display: none;
+  }
+  .test-result.ok { display: block; color: var(--ok); background: rgba(143,227,168,.1); border-left: 2px solid var(--ok); }
+  .test-result.err { display: block; color: var(--error); background: rgba(244,113,116,.1); border-left: 2px solid var(--error); }
+  
+  .restart-row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .5rem; }
   .restart-row form { margin: 0; }
+  .save-bar { margin-top: 1.5rem; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="topbar">
-    <div class="brand">opusbots</div>
+    <div style="display: flex; align-items: center;">
+      <span class="brand">opusbots</span>
+      <span class="badge-single">Unified Bot</span>
+    </div>
     <a class="logout" href="{{ url_for('logout') }}">log out</a>
   </div>
-  <div class="tagline">config is live -- bots poll for changes within ~15s, no restart needed</div>
+  <div class="tagline">single unified telegram bot • live configuration • homelab media automation</div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
@@ -79,63 +111,145 @@
     {% endfor %}
   {% endwith %}
 
-  <form method="post" action="{{ url_for('save') }}">
+  <form method="post" action="{{ url_for('save') }}" id="configForm">
+    <!-- Telegram Section -->
     <div class="section">
-      <h2>telegram</h2>
-      <label>mirror bot token (torrents)</label>
-      <input name="mirror_bot_token" value="{{ cfg.telegram.mirror_bot_token }}" placeholder="123456:ABC-DEF...">
-      <label>movies bot token</label>
-      <input name="downloads_bot_token" value="{{ cfg.telegram.downloads_bot_token }}" placeholder="123456:ABC-DEF...">
-      <label>music bot token</label>
-      <input name="music_bot_token" value="{{ cfg.telegram.music_bot_token }}" placeholder="123456:ABC-DEF...">
-      <label>allowed telegram user id</label>
-      <input name="allowed_user_id" value="{{ cfg.telegram.allowed_user_id or '' }}" placeholder="e.g. 123456789">
-      <div class="hint">only this telegram user id can command any of the bots</div>
+      <div class="section-header">
+        <h2>Telegram Bot</h2>
+        <button type="button" class="btn-test" onclick="testTelegram()">Test Bot Token</button>
+      </div>
+      <div id="tg-test-result" class="test-result"></div>
+
+      <label>Bot Token (Single Telegram Bot)</label>
+      <input id="bot_token" name="bot_token" value="{{ bot_token }}" placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ">
+      <div class="hint">Your bot token from @BotFather. Used for torrents, movies, and music.</div>
+
+      <label>Allowed Telegram User ID</label>
+      <input id="allowed_user_id" name="allowed_user_id" value="{{ cfg.telegram.allowed_user_id or '' }}" placeholder="e.g. 123456789">
+      <div class="hint">Only this Telegram user ID can send commands and downloads (0 = setup mode / warning shown in /start).</div>
     </div>
 
+    <!-- qBittorrent Section -->
     <div class="section">
-      <h2>qbittorrent (mirror bot only)</h2>
-      <label>host</label>
-      <input name="qbit_host" value="{{ cfg.qbittorrent.host }}" placeholder="http://192.168.1.50:30024">
+      <div class="section-header">
+        <h2>qBittorrent Integration</h2>
+        <button type="button" class="btn-test" onclick="testQbit()">Test Connection</button>
+      </div>
+      <div id="qbit-test-result" class="test-result"></div>
+
+      <label>Host URL</label>
+      <input id="qbit_host" name="qbit_host" value="{{ cfg.qbittorrent.host }}" placeholder="http://192.168.1.50:8080">
+      
       <div class="row">
         <div>
-          <label>username</label>
-          <input name="qbit_user" value="{{ cfg.qbittorrent.user }}">
+          <label>Username</label>
+          <input id="qbit_user" name="qbit_user" value="{{ cfg.qbittorrent.user }}" placeholder="admin">
         </div>
         <div>
-          <label>password</label>
-          <input type="password" name="qbit_pass" placeholder="leave blank to keep current">
+          <label>Password</label>
+          <input id="qbit_pass" type="password" name="qbit_pass" placeholder="leave blank to keep current">
         </div>
       </div>
     </div>
 
+    <!-- Media Paths Section -->
     <div class="section">
-      <h2>media paths</h2>
-      <label>torrent downloads (completed) -- mirror bot</label>
-      <input name="path_downloads_completed" value="{{ cfg.paths.downloads_completed }}">
-      <label>movies -- movies bot</label>
-      <input name="path_movies" value="{{ cfg.paths.movies }}">
-      <label>music -- music bot</label>
-      <input name="path_music" value="{{ cfg.paths.music }}">
-      <div class="hint">paths as seen inside the containers (under your /tank mount)</div>
+      <div class="section-header">
+        <h2>Media Storage Paths</h2>
+      </div>
+      <label>Torrent Downloads (Completed)</label>
+      <input name="path_downloads_completed" value="{{ cfg.paths.downloads_completed }}" placeholder="/tank/Downloads/Completed">
+      <div class="hint">Where qBittorrent saves finished torrents.</div>
+
+      <label>Movies & Videos Library</label>
+      <input name="path_movies" value="{{ cfg.paths.movies }}" placeholder="/tank/Movies">
+      <div class="hint">Where video downloads and uploads are stored.</div>
+
+      <label>Music Library</label>
+      <input name="path_music" value="{{ cfg.paths.music }}" placeholder="/tank/Music">
+      <div class="hint">Where MP3 & FLAC downloads/playlists are organized.</div>
     </div>
 
-    <button type="submit" class="btn-primary">save changes</button>
+    <div class="save-bar">
+      <button type="submit" class="btn-primary" style="padding: 0.65rem 1.75rem; font-size: 0.85rem;">Save Configuration</button>
+    </div>
   </form>
 
-  <div class="section">
-    <h2>restart</h2>
+  <!-- Container Control Section -->
+  <div class="section" style="margin-top: 1.5rem;">
+    <div class="section-header">
+      <h2>Service Management</h2>
+    </div>
+    <div class="hint" style="margin-top: 0;">Restart services if required. Config edits apply automatically without restarting.</div>
     <div class="restart-row">
       {% for c in containers %}
       <form method="post" action="{{ url_for('restart', container=c) }}">
-        <button type="submit" class="btn-ghost">{{ c }}</button>
+        <button type="submit" class="btn-ghost">Restart {{ c }}</button>
       </form>
       {% endfor %}
       <form method="post" action="{{ url_for('restart_all') }}">
-        <button type="submit" class="btn-primary">restart all</button>
+        <button type="submit" class="btn-primary">Restart All</button>
       </form>
     </div>
   </div>
 </div>
+
+<script>
+async function testTelegram() {
+  const el = document.getElementById('tg-test-result');
+  const token = document.getElementById('bot_token').value.trim();
+  el.className = 'test-result';
+  el.style.display = 'block';
+  el.textContent = 'Testing token with Telegram API...';
+
+  try {
+    const res = await fetch('/api/test-telegram', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ bot_token: token })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      el.className = 'test-result ok';
+      el.textContent = '✓ ' + data.message;
+    } else {
+      el.className = 'test-result err';
+      el.textContent = '✗ ' + data.message;
+    }
+  } catch (err) {
+    el.className = 'test-result err';
+    el.textContent = '✗ Network error: ' + err.message;
+  }
+}
+
+async function testQbit() {
+  const el = document.getElementById('qbit-test-result');
+  const host = document.getElementById('qbit_host').value.trim();
+  const user = document.getElementById('qbit_user').value.trim();
+  const pass = document.getElementById('qbit_pass').value;
+  el.className = 'test-result';
+  el.style.display = 'block';
+  el.textContent = 'Connecting to qBittorrent...';
+
+  try {
+    const res = await fetch('/api/test-qbit', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ host: host, user: user, pass: pass })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      el.className = 'test-result ok';
+      el.textContent = '✓ ' + data.message;
+    } else {
+      el.className = 'test-result err';
+      el.textContent = '✗ ' + data.message;
+    }
+  } catch (err) {
+    el.className = 'test-result err';
+    el.textContent = '✗ Network error: ' + err.message;
+  }
+}
+</script>
 </body>
 </html>

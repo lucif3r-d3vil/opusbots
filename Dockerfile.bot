@@ -16,5 +16,4 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     CONFIG_PATH=/config/config.json
 
-# Overridden per-service by `command:` in docker-compose.yml
-CMD ["python", "bots/mirror_bot.py"]
+CMD ["python", "bots/opus_bot.py"]
