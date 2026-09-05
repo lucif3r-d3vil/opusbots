@@ -1,45 +1,24 @@
-# Deploy-only compose file -- pulls prebuilt images from GHCR instead of
-# building locally. Use this one in Portainer / Dockge / any stack manager.
+# OpusBots - Deploy-only Compose File (GHCR prebuilt images)
+# Use this in Portainer / Dockge / TrueNAS / Proxmox stacks.
 #
-# Set these as stack environment variables (or a .env file next to this file):
+# Stack environment variables (or .env file):
 #   GHCR_OWNER   your GitHub username, e.g. lucif3r-d3vil
-#   MEDIA_ROOT   folder on the host with Movies/, Music/, Downloads/ (default: /tank)
+#   MEDIA_ROOT   folder on host with Downloads/, Movies/, Music/ (default: /tank)
 #   ADMIN_USER, ADMIN_PASS, FLASK_SECRET_KEY   for the config-web login
 #   IMAGE_TAG    optional, defaults to "latest"
 
 services:
-  mirror-bot:
+  opus-bot:
     image: ghcr.io/${GHCR_OWNER}/opusbots-bot:${IMAGE_TAG:-latest}
-    container_name: mirror-bot
+    container_name: opus-bot
     restart: unless-stopped
-    command: ["python", "bots/mirror_bot.py"]
+    command: ["python", "bots/opus_bot.py"]
     volumes:
       - ./config:/config
       - ${MEDIA_ROOT:-/tank}:/tank
     environment:
       - PYTHONUNBUFFERED=1
-
-  downloads-bot:
-    image: ghcr.io/${GHCR_OWNER}/opusbots-bot:${IMAGE_TAG:-latest}
-    container_name: downloads-bot
-    restart: unless-stopped
-    command: ["python", "bots/downloads_bot.py"]
-    volumes:
-      - ./config:/config
-      - ${MEDIA_ROOT:-/tank}:/tank
-    environment:
-      - PYTHONUNBUFFERED=1
-
-  music-bot:
-    image: ghcr.io/${GHCR_OWNER}/opusbots-bot:${IMAGE_TAG:-latest}
-    container_name: music-bot
-    restart: unless-stopped
-    command: ["python", "bots/music_bot.py"]
-    volumes:
-      - ./config:/config
-      - ${MEDIA_ROOT:-/tank}:/tank
-    environment:
-      - PYTHONUNBUFFERED=1
+      - CONFIG_PATH=/config/config.json
 
   config-web:
     image: ghcr.io/${GHCR_OWNER}/opusbots-config-web:${IMAGE_TAG:-latest}
@@ -49,9 +28,6 @@ services:
       - "8090:8090"
     volumes:
       - ./config:/config
-      # Needed so the Restart buttons can control the bot containers.
-      # This grants config-web root-equivalent access to the Docker host --
-      # keep this page behind Cloudflare Access / LAN-only / a strong password.
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - ADMIN_USER=${ADMIN_USER:-admin}

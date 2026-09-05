@@ -5,9 +5,8 @@ WORKDIR /app
 COPY config-web/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Reuse the same config.py the bots use, so both sides always agree on schema
-COPY shared/config.py shared/config.py
-RUN touch shared/__init__.py
+COPY shared/ shared/
+COPY bots/ bots/
 
 COPY config-web/app.py .
 COPY config-web/templates/ templates/

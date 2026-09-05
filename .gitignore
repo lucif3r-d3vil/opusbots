@@ -1,4 +1,11 @@
 .env
 config/config.json
+config/*.tmp
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+/tmp/ytdl_*
