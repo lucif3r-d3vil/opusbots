@@ -31,7 +31,9 @@ def test_save_and_reload_config(temp_config_path):
     reloaded = config.load_config()
     assert reloaded["telegram"]["bot_token"] == "123456:TEST_TOKEN"
     assert reloaded["telegram"]["allowed_user_id"] == 999888
-    assert reloaded["qbittorrent"]["host"] == "http://qbit.local:8080"
+    # A full URL is split into Radarr-style host + port when it is saved.
+    assert reloaded["qbittorrent"]["host"] == "http://qbit.local"
+    assert reloaded["qbittorrent"]["port"] == "8080"
 
 
 def test_legacy_token_migration(temp_config_path):
@@ -57,3 +59,40 @@ def test_corrupted_config_fallback(temp_config_path):
     cfg = config.load_config()
     assert "telegram" in cfg
     assert cfg["telegram"]["bot_token"] == ""
+
+
+def test_defaults_contain_no_hardcoded_server(temp_config_path):
+    cfg = config.load_config()
+    assert cfg["qbittorrent"]["host"] == ""
+    assert cfg["qbittorrent"]["port"] == ""
+    assert cfg["qbittorrent"]["verify_tls"] is True
+    assert config.get_qbit_summary(cfg) == "not configured"
+
+
+def test_legacy_single_host_url_is_split_on_load(temp_config_path):
+    """Older configs stored one URL such as http://192.168.1.50:30024."""
+    with open(temp_config_path, "w") as f:
+        json.dump({"qbittorrent": {"host": "http://192.168.1.50:30024/", "user": "admin", "pass": "pw"}}, f)
+
+    cfg = config.load_config()
+    assert cfg["qbittorrent"]["host"] == "http://192.168.1.50"
+    assert cfg["qbittorrent"]["port"] == "30024"
+    assert config.get_qbit_summary(cfg) == "http://192.168.1.50:30024"
+
+
+def test_host_and_port_are_kept_when_already_split(temp_config_path):
+    with open(temp_config_path, "w") as f:
+        json.dump({"qbittorrent": {"host": "192.168.1.50", "port": "30024"}}, f)
+
+    cfg = config.load_config()
+    assert cfg["qbittorrent"]["host"] == "192.168.1.50"
+    assert cfg["qbittorrent"]["port"] == "30024"
+    assert config.get_qbit_summary(cfg) == "http://192.168.1.50:30024"
+
+
+def test_url_base_is_preserved(temp_config_path):
+    with open(temp_config_path, "w") as f:
+        json.dump({"qbittorrent": {"host": "qbit.example.com", "port": "443", "url_base": "/qbittorrent"}}, f)
+
+    cfg = config.load_config()
+    assert config.get_qbit_summary(cfg) == "http://qbit.example.com:443/qbittorrent"

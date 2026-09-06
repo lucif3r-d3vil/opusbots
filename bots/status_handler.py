@@ -7,7 +7,14 @@ and background music queues into an informative, real-time dashboard.
 import time
 from bots import music_handler, torrent_handler, video_handler
 from shared import tgbot
-from shared.utils import escape_html, format_eta, format_size, format_speed, get_disk_usage, progress_bar
+from shared.qbittorrent import error_text
+from shared.utils import escape_html, format_eta, format_speed, get_disk_usage, progress_bar
+
+
+def _first_line(text, limit=170):
+    """Compact, single-line version of an error message for the dashboard."""
+    line = str(text).strip().splitlines()[0] if str(text).strip() else "unknown error"
+    return line[:limit]
 
 
 def build_status_keyboard():
@@ -54,15 +61,31 @@ def build_status_text(cfg):
     lines.append("<b>🧲 qBittorrent:</b>")
     try:
         torrents = torrent_handler.get_torrents(cfg)
-        downloading = [t for t in torrents if t.get("state") in ["downloading", "stalledDL", "forcedDL"]]
-        seeding = [t for t in torrents if t.get("state") in ["uploading", "stalledUP", "forcedUP"]]
+        # State names differ between qBittorrent 4.x (pausedDL) and 5.x (stoppedDL).
+        downloading = [t for t in torrents if torrent_handler.is_active_state(t.get("state"))]
+        seeding = [t for t in torrents if torrent_handler.is_seeding_state(t.get("state"))]
+        stopped = [t for t in torrents if torrent_handler.is_stopped_state(t.get("state"))]
 
-        lines.append(f"• Total: <b>{len(torrents)}</b> | Active: <b>{len(downloading)}</b> | Seeding: <b>{len(seeding)}</b>")
+        version = ""
+        try:
+            app_version, _ = torrent_handler.get_versions(cfg)
+            if app_version and app_version != "Unknown":
+                version = f" <i>({escape_html(app_version)})</i>"
+        except Exception:
+            pass
+
+        lines.append(
+            f"• Total: <b>{len(torrents)}</b> | Active: <b>{len(downloading)}</b> | "
+            f"Seeding: <b>{len(seeding)}</b> | Stopped: <b>{len(stopped)}</b>{version}"
+        )
 
         if downloading:
             for t in downloading[:3]:
-                name = escape_html(t.get("name", "Unknown")[:35])
-                prog = t.get("progress", 0.0) * 100.0
+                name = escape_html(str(t.get("name", "Unknown"))[:35])
+                try:
+                    prog = float(t.get("progress", 0.0)) * 100.0
+                except (TypeError, ValueError):
+                    prog = 0.0
                 bar = progress_bar(prog, width=6)
                 spd = format_speed(t.get("dlspeed", 0))
                 eta = format_eta(t.get("eta", 8640000))
@@ -70,7 +93,7 @@ def build_status_text(cfg):
             if len(downloading) > 3:
                 lines.append(f"  <i>... +{len(downloading) - 3} more active</i>")
     except Exception as e:
-        lines.append(f"• <i>Status offline: {escape_html(str(e)[:50])}</i>")
+        lines.append(f"• <i>Offline: {escape_html(_first_line(error_text(e)))}</i>")
     lines.append("")
 
     # 3. Video / Movie Downloads
@@ -116,4 +139,4 @@ def get_torrents_overview(cfg, active_only=False):
         torrents = torrent_handler.get_torrents(cfg, filter_mode="downloading" if active_only else None)
         return torrent_handler.format_torrents_status(torrents, active_only=active_only)
     except Exception as e:
-        return f"❌ <b>qBittorrent Error:</b>\n<code>{escape_html(str(e))}</code>"
+        return f"❌ <b>qBittorrent Error:</b>\n<code>{escape_html(error_text(e))}</code>"

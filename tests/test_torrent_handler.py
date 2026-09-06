@@ -1,6 +1,20 @@
 import pytest
 from unittest.mock import MagicMock, patch
+
 from bots import torrent_handler
+from shared import qbittorrent
+
+CFG = {
+    "qbittorrent": {"host": "http://qbit:8080", "port": "", "user": "admin", "pass": "secret"},
+    "paths": {"downloads_completed": "/tank/Downloads/Completed"},
+}
+
+
+@pytest.fixture(autouse=True)
+def clean_cache():
+    qbittorrent.clear_client_cache()
+    yield
+    qbittorrent.clear_client_cache()
 
 
 def test_detect_category():
@@ -21,56 +35,77 @@ def test_is_torrent_or_magnet():
     assert torrent_handler.is_torrent_or_magnet("https://example.com/file.torrent")
     assert not torrent_handler.is_torrent_or_magnet("https://youtube.com/watch?v=123")
     assert not torrent_handler.is_torrent_or_magnet("just plain text")
+    assert not torrent_handler.is_torrent_or_magnet("")
 
 
-def test_qbit_session_and_add_magnet():
-    cfg = {
-        "qbittorrent": {"host": "http://qbit:8080", "user": "admin", "pass": "secret"},
-        "paths": {"downloads_completed": "/tank/Downloads/Completed"},
-    }
+def test_add_magnet_passes_savepath_and_category():
+    with patch.object(torrent_handler, "client") as mock_client:
+        qbit = MagicMock()
+        qbit.add_urls.return_value = True
+        mock_client.return_value = qbit
 
-    with patch("requests.Session") as mock_session_cls:
-        mock_session = MagicMock()
-        mock_session_cls.return_value = mock_session
+        assert torrent_handler.add_magnet(CFG, "magnet:?xt=urn:btih:xyz", category="radarr") is True
 
-        # Login response
-        login_resp = MagicMock()
-        login_resp.text = "Ok."
-        login_resp.status_code = 200
-
-        # Add torrent response
-        add_resp = MagicMock()
-        add_resp.text = "Ok."
-        add_resp.status_code = 200
-
-        mock_session.post.side_effect = [login_resp, add_resp]
-
-        success = torrent_handler.add_magnet(cfg, "magnet:?xt=urn:btih:xyz", category="radarr")
-        assert success is True
+        _, kwargs = qbit.add_urls.call_args
+        assert kwargs["category"] == "radarr"
+        assert kwargs["savepath"] == "/tank/Downloads/Completed"
 
 
-def test_add_torrent_file():
-    cfg = {
-        "qbittorrent": {"host": "http://qbit:8080", "user": "admin", "pass": "secret"},
-        "paths": {"downloads_completed": "/tank/Downloads/Completed"},
-    }
+def test_add_torrent_file_uploads_bytes():
+    with patch.object(torrent_handler, "client") as mock_client:
+        qbit = MagicMock()
+        qbit.add_torrent_files.return_value = True
+        mock_client.return_value = qbit
 
-    with patch("requests.Session") as mock_session_cls:
-        mock_session = MagicMock()
-        mock_session_cls.return_value = mock_session
+        assert torrent_handler.add_torrent_file(CFG, b"fake_torrent_bytes", "test.torrent", category="radarr") is True
 
-        login_resp = MagicMock()
-        login_resp.text = "Ok."
-        login_resp.status_code = 200
+        args, kwargs = qbit.add_torrent_files.call_args
+        assert args[0] == b"fake_torrent_bytes"
+        assert args[1] == "test.torrent"
+        assert kwargs["category"] == "radarr"
 
-        add_resp = MagicMock()
-        add_resp.text = "Ok."
-        add_resp.status_code = 200
 
-        mock_session.post.side_effect = [login_resp, add_resp]
+def test_add_torrent_reports_errors_instead_of_raising():
+    with patch.object(torrent_handler, "client") as mock_client:
+        qbit = MagicMock()
+        qbit.add_urls.side_effect = qbittorrent.QBitAuthError("qBittorrent rejected the username or password.")
+        mock_client.return_value = qbit
 
-        success = torrent_handler.add_torrent_file(cfg, b"fake_torrent_bytes", "test.torrent", category="radarr")
-        assert success is True
+        result = torrent_handler.add_torrent(CFG, "magnet:?xt=urn:btih:xyz")
+        assert result["ok"] is False
+        assert "username or password" in result["error"]
+
+
+def test_pause_and_resume_map_onto_the_client():
+    with patch.object(torrent_handler, "client") as mock_client:
+        qbit = MagicMock()
+        qbit.set_torrent_state.return_value = True
+        mock_client.return_value = qbit
+
+        assert torrent_handler.pause_torrents(CFG) is True
+        assert torrent_handler.resume_torrents(CFG, hashes="abc") is True
+        assert qbit.set_torrent_state.call_args_list[0].kwargs == {"hashes": "all"}
+        assert qbit.set_torrent_state.call_args_list[1].kwargs == {"hashes": "abc"}
+        assert qbit.set_torrent_state.call_args_list[0].args == (False,)
+        assert qbit.set_torrent_state.call_args_list[1].args == (True,)
+
+
+def test_get_torrents_delegates_to_client():
+    with patch.object(torrent_handler, "client") as mock_client:
+        qbit = MagicMock()
+        qbit.torrents_info.return_value = [{"name": "one"}]
+        mock_client.return_value = qbit
+
+        assert torrent_handler.get_torrents(CFG, filter_mode="downloading") == [{"name": "one"}]
+        qbit.torrents_info.assert_called_once_with(status_filter="downloading")
+
+
+def test_qbit_session_returns_the_clients_session():
+    with patch("requests.Session") as session_cls, \
+            patch.object(qbittorrent.QBittorrentClient, "login", return_value=True):
+        session = MagicMock()
+        session_cls.return_value = session
+        assert torrent_handler.qbit_session(CFG) is session
 
 
 def test_format_torrents_status():
@@ -90,3 +125,16 @@ def test_format_torrents_status():
     assert "Ubuntu 24.04 ISO" in out
     assert "75.0%" in out
     assert "linux" in out
+
+
+def test_format_torrents_status_survives_junk_values():
+    out = torrent_handler.format_torrents_status(
+        [{"name": None, "progress": "not-a-number", "size": None, "state": "stoppedDL"}]
+    )
+    assert "0.0%" in out
+    assert "stoppedDL" in out
+
+
+def test_format_torrents_status_empty():
+    assert "No active torrents" in torrent_handler.format_torrents_status([], active_only=True)
+    assert "No torrents found" in torrent_handler.format_torrents_status([])

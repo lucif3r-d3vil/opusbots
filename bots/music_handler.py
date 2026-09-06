@@ -291,7 +291,7 @@ def download_playlist(token, cfg, chat_id, url, quality="mp3"):
                 )
         else:
             if msg_id:
-                tgbot.edit_message(token, chat_id, msg_id, f"⚠️ Playlist download finished with warnings. Some tracks may have failed.")
+                tgbot.edit_message(token, chat_id, msg_id, "⚠️ Playlist download finished with warnings. Some tracks may have failed.")
 
     except Exception as e:
         if msg_id:

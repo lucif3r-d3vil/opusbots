@@ -11,7 +11,8 @@ import uuid
 
 from bots import music_handler, status_handler, torrent_handler, video_handler
 from shared import tgbot
-from shared.config import get_allowed_user_id, get_bot_token, load_config
+from shared.config import get_allowed_user_id, get_bot_token
+from shared.qbittorrent import error_text
 from shared.utils import escape_html, get_disk_usage
 
 # Cache for interactive link choices
@@ -73,8 +74,9 @@ def get_help_text(section="main"):
             "<b>Commands:</b>\n"
             "• /torrents - View active and completed torrents\n"
             "• /downloading - View currently downloading torrents\n"
-            "• /pause - Pause all torrents in qBittorrent\n"
-            "• /resume - Resume all torrents in qBittorrent\n\n"
+            "• /pause - Pause (stop) all torrents in qBittorrent\n"
+            "• /resume - Resume (start) all torrents in qBittorrent\n"
+            "• /qbit - Test the qBittorrent connection and show its version\n\n"
             "<b>Categories:</b>\n"
             "Torrents automatically route to <code>radarr</code> (Movies) or <code>tv-sonarr</code> (TV Shows)."
         )
@@ -113,6 +115,7 @@ def get_help_text(section="main"):
         "<b>Commands:</b>\n"
         "• /status - Unified system & downloads dashboard\n"
         "• /torrents - Manage qBittorrent downloads\n"
+        "• /qbit - Diagnose the qBittorrent connection\n"
         "• /video &lt;URL&gt; - Download video to Movies\n"
         "• /yt &lt;URL&gt; - Download MP3 audio\n"
         "• /flac &lt;URL&gt; - Download FLAC audio\n"
@@ -160,22 +163,12 @@ def handle_callback(update, cfg, token):
         tgbot.edit_message(token, chat_id, msg_id, text, reply_markup=tgbot.inline_keyboard(rows))
         return
 
-    if data == "status:pause_all":
-        try:
-            torrent_handler.pause_torrents(cfg, hashes="all")
-            tgbot.answer_callback(token, cb_id, "All torrents paused.", show_alert=False)
-        except Exception as e:
-            tgbot.answer_callback(token, cb_id, f"Error: {e}", show_alert=True)
-        status_text = status_handler.build_status_text(cfg)
-        tgbot.edit_message(token, chat_id, msg_id, status_text, reply_markup=status_handler.build_status_keyboard())
-        return
-
-    if data == "status:resume_all":
-        try:
-            torrent_handler.resume_torrents(cfg, hashes="all")
-            tgbot.answer_callback(token, cb_id, "All torrents resumed.", show_alert=False)
-        except Exception as e:
-            tgbot.answer_callback(token, cb_id, f"Error: {e}", show_alert=True)
+    if data in ("status:pause_all", "status:resume_all"):
+        start = data == "status:resume_all"
+        # The callback was already acknowledged above, so report through the chat.
+        ok, message = set_torrents_running(token, chat_id, cfg, start=start)
+        if not ok:
+            tgbot.send(token, chat_id, message)
         status_text = status_handler.build_status_text(cfg)
         tgbot.edit_message(token, chat_id, msg_id, status_text, reply_markup=status_handler.build_status_keyboard())
         return
@@ -278,6 +271,7 @@ def handle_callback(update, cfg, token):
             title_safe=req["title_safe"],
             chat_id=chat_id,
             msg_id=msg_id,
+            height=chosen_fmt.get("height"),
         )
         return
 
@@ -327,20 +321,18 @@ def handle_message(update, cfg, token):
         tgbot.send(token, chat_id, overview)
         return
 
-    if text in ["/pause", "/pause_all"]:
-        try:
-            torrent_handler.pause_torrents(cfg, hashes="all")
-            tgbot.send(token, chat_id, "⏸️ <b>All torrents have been paused in qBittorrent.</b>")
-        except Exception as e:
-            tgbot.send(token, chat_id, f"❌ Error pausing torrents: <code>{escape_html(str(e))}</code>")
+    if text in ["/pause", "/pause_all", "/stop_all"]:
+        _, message = set_torrents_running(token, chat_id, cfg, start=False)
+        tgbot.send(token, chat_id, message)
         return
 
-    if text in ["/resume", "/resume_all"]:
-        try:
-            torrent_handler.resume_torrents(cfg, hashes="all")
-            tgbot.send(token, chat_id, "▶️ <b>All torrents have been resumed in qBittorrent.</b>")
-        except Exception as e:
-            tgbot.send(token, chat_id, f"❌ Error resuming torrents: <code>{escape_html(str(e))}</code>")
+    if text in ["/resume", "/resume_all", "/start_all"]:
+        _, message = set_torrents_running(token, chat_id, cfg, start=True)
+        tgbot.send(token, chat_id, message)
+        return
+
+    if text in ["/qbit", "/qbittorrent", "/testqbit"]:
+        report_qbit_connection(token, chat_id, cfg)
         return
 
     if text == "/paths":
@@ -362,8 +354,11 @@ def handle_message(update, cfg, token):
         return
 
     # Direct Video Command
-    if text.startswith("/video "):
-        url = text[7:].strip()
+    if text == "/video" or text.startswith("/video "):
+        url = text[len("/video"):].strip()
+        if not url:
+            tgbot.send(token, chat_id, "ℹ️ Usage: <code>/video &lt;URL&gt;</code> — or just paste a video link for the picker.")
+            return
         msg_id = tgbot.send(token, chat_id, "🔍 <i>Analyzing available video resolutions...</i>")
         try:
             title, title_safe, formats, duration = video_handler.get_video_formats(url)
@@ -390,26 +385,27 @@ def handle_message(update, cfg, token):
         return
 
     # Direct Music Commands
-    if text.startswith("/yt ") or text.startswith("/mp3 "):
-        url = text.split(maxsplit=1)[1].strip()
+    music_commands = [("/yt", "mp3"), ("/mp3", "mp3"), ("/flac", "flac")]
+    for prefix, quality in music_commands:
+        if text != prefix and not text.startswith(prefix + " "):
+            continue
+        url = text[len(prefix):].strip()
+        if not url:
+            tgbot.send(token, chat_id, f"ℹ️ Usage: <code>{prefix} &lt;URL&gt;</code>")
+            return
+        label = "FLAC Song Download" if quality == "flac" else "MP3 Song Download"
         music_handler.enqueue_job(
             token, chat_id,
-            lambda u=url, c=chat_id: music_handler.download_song(token, cfg, c, u, quality="mp3"),
-            label="MP3 Song Download"
+            lambda u=url, c=chat_id, q=quality: music_handler.download_song(token, cfg, c, u, quality=q),
+            label=label,
         )
         return
 
-    if text.startswith("/flac "):
-        url = text[6:].strip()
-        music_handler.enqueue_job(
-            token, chat_id,
-            lambda u=url, c=chat_id: music_handler.download_song(token, cfg, c, u, quality="flac"),
-            label="FLAC Song Download"
-        )
-        return
-
-    if text.startswith("/playlist "):
-        url = text[10:].strip()
+    if text == "/playlist" or text.startswith("/playlist "):
+        url = text[len("/playlist"):].strip()
+        if not url:
+            tgbot.send(token, chat_id, "ℹ️ Usage: <code>/playlist &lt;YouTube playlist URL&gt;</code>")
+            return
         music_handler.enqueue_job(
             token, chat_id,
             lambda u=url, c=chat_id: music_handler.download_playlist(token, cfg, c, u, quality="mp3"),
@@ -417,8 +413,11 @@ def handle_message(update, cfg, token):
         )
         return
 
-    if text.startswith("/search "):
-        query = text[8:].strip()
+    if text == "/search" or text.startswith("/search "):
+        query = text[len("/search"):].strip()
+        if not query:
+            tgbot.send(token, chat_id, "ℹ️ Usage: <code>/search &lt;artist - song&gt;</code>")
+            return
         music_handler.enqueue_job(
             token, chat_id,
             lambda q=query, c=chat_id: music_handler.search_and_download(token, cfg, c, q, quality="mp3"),
@@ -430,20 +429,24 @@ def handle_message(update, cfg, token):
     if torrent_handler.is_torrent_or_magnet(text):
         category, cat_label = torrent_handler.detect_category(text)
         tgbot.send_chat_action(token, chat_id, "typing")
-        try:
-            success = torrent_handler.add_magnet(cfg, text, category=category)
-            if success:
-                tgbot.send(
-                    token, chat_id,
-                    f"✅ <b>Added to qBittorrent!</b>\n\n"
-                    f"📂 Category: <b>{cat_label}</b> (<code>{category}</code>)\n"
-                    f"📍 Destination: <code>{escape_html(cfg['paths']['downloads_completed'])}</code>\n\n"
-                    f"Use /status to monitor download progress."
-                )
-            else:
-                tgbot.send(token, chat_id, "❌ Failed to add to qBittorrent. Please check if qBittorrent is running.")
-        except Exception as e:
-            tgbot.send(token, chat_id, f"❌ qBittorrent Error:\n<code>{escape_html(str(e))}</code>")
+        result = torrent_handler.add_torrent(cfg, text, category=category)
+        if result["ok"]:
+            body = (
+                f"✅ <b>Added to qBittorrent!</b>\n\n"
+                f"📂 Category: <b>{cat_label}</b> (<code>{escape_html(result['category'] if result['applied'] else 'none')}</code>)\n"
+                f"📍 Destination: <code>{escape_html(cfg['paths']['downloads_completed'])}</code>\n\n"
+                f"Use /status to monitor download progress."
+            )
+            if result.get("warning"):
+                body += f"\n\n⚠️ {escape_html(result['warning'])}"
+            tgbot.send(token, chat_id, body)
+        else:
+            tgbot.send(
+                token, chat_id,
+                "❌ <b>Could not add this to qBittorrent.</b>\n\n"
+                f"<code>{escape_html(result['error'] or 'qBittorrent rejected the torrent.')}</code>\n\n"
+                "<i>Run /qbit for a connection diagnosis.</i>"
+            )
         return
 
     # Smart YouTube / Web Video Link Handling (Interactive Menu)
@@ -510,21 +513,35 @@ def handle_media_upload(msg, cfg, token, chat_id):
             tgbot.send_chat_action(token, chat_id, "typing")
             try:
                 file_bytes, _ = tgbot.get_file_bytes(token, doc["file_id"])
-                category, cat_label = torrent_handler.detect_category(fname)
-                success = torrent_handler.add_torrent_file(cfg, file_bytes, fname, category=category)
-                if success:
-                    tgbot.send(
-                        token, chat_id,
-                        f"✅ <b>Torrent File Added to qBittorrent!</b>\n\n"
-                        f"📄 File: <code>{escape_html(fname)}</code>\n"
-                        f"📂 Category: <b>{cat_label}</b> (<code>{category}</code>)\n"
-                        f"📍 Save path: <code>{escape_html(cfg['paths']['downloads_completed'])}</code>\n\n"
-                        f"Use /status to track progress."
-                    )
-                else:
-                    tgbot.send(token, chat_id, "❌ Failed to add .torrent file to qBittorrent.")
             except Exception as e:
-                tgbot.send(token, chat_id, f"❌ Error uploading torrent:\n<code>{escape_html(str(e))}</code>")
+                tgbot.send(
+                    token, chat_id,
+                    f"❌ Could not download <code>{escape_html(fname)}</code> from Telegram:\n"
+                    f"<code>{escape_html(str(e))}</code>"
+                )
+                return
+
+            category, cat_label = torrent_handler.detect_category(fname)
+            result = torrent_handler.add_torrent(cfg, file_bytes, category=category, filename=fname)
+            if result["ok"]:
+                body = (
+                    f"✅ <b>Torrent File Added to qBittorrent!</b>\n\n"
+                    f"📄 File: <code>{escape_html(fname)}</code>\n"
+                    f"📂 Category: <b>{cat_label}</b> "
+                    f"(<code>{escape_html(result['category'] if result['applied'] else 'none')}</code>)\n"
+                    f"📍 Save path: <code>{escape_html(cfg['paths']['downloads_completed'])}</code>\n\n"
+                    f"Use /status to track progress."
+                )
+                if result.get("warning"):
+                    body += f"\n\n⚠️ {escape_html(result['warning'])}"
+                tgbot.send(token, chat_id, body)
+            else:
+                tgbot.send(
+                    token, chat_id,
+                    "❌ <b>Failed to add the .torrent file.</b>\n\n"
+                    f"<code>{escape_html(result['error'] or 'qBittorrent rejected the upload.')}</code>\n\n"
+                    "<i>Run /qbit for a connection diagnosis.</i>"
+                )
             return
 
         # Is it a video file?
@@ -547,11 +564,60 @@ def handle_media_upload(msg, cfg, token, chat_id):
         )
 
 
+def set_torrents_running(token, chat_id, cfg, start):
+    """Start/stop every torrent and report what qBittorrent actually answered."""
+    verb = "resumed" if start else "paused"
+    emoji = "▶️" if start else "⏸️"
+    try:
+        ok = torrent_handler.set_torrent_state(cfg, start=start, hashes="all")
+    except Exception as e:
+        return False, f"❌ Error talking to qBittorrent:\n<code>{escape_html(error_text(e))}</code>"
+
+    if ok:
+        return True, f"{emoji} <b>All torrents have been {verb} in qBittorrent.</b>"
+    return False, (
+        f"⚠️ qBittorrent did not apply the change. Nothing matched the request, or this "
+        f"qBittorrent build does not expose the torrents/{'start' if start else 'stop'} endpoint."
+    )
+
+
+def report_qbit_connection(token, chat_id, cfg):
+    """Diagnose the qBittorrent connection from inside Telegram (/qbit)."""
+    report = torrent_handler.diagnose_connection(cfg)
+    if report["ok"]:
+        text = (
+            "✅ <b>qBittorrent connection OK</b>\n\n"
+            f"🔗 <code>{escape_html(report['base_url'])}</code>\n"
+            f"📦 Version: <b>{escape_html(report['version'])}</b> "
+            f"(Web API {escape_html(report['api_version'])})"
+        )
+        if report.get("auth_bypassed"):
+            text += "\n🔓 Authentication is bypassed for this client."
+    else:
+        text = (
+            "❌ <b>qBittorrent connection failed</b>\n\n"
+            f"<code>{escape_html(report['message'])}</code>"
+        )
+        if report.get("hint"):
+            text += f"\n\n💡 {escape_html(report['hint'])}"
+        if report.get("base_url"):
+            text += f"\n\n🔗 Tried: <code>{escape_html(report['base_url'])}</code>"
+        text += "\n\n<i>Fix it in the web panel (port 8090) under qBittorrent Integration.</i>"
+    tgbot.send(token, chat_id, text)
+    return report
+
+
 def process_update(update, cfg, token):
     """Main update dispatcher."""
     is_auth, user_id, chat_id = check_auth(update, cfg)
     if not is_auth:
-        tgbot.send(token, chat_id, "⛔ <b>Unauthorized.</b> Your user ID is not authorized to use this bot.")
+        # Never answer strangers: it lets random people probe the bot and burns
+        # Telegram API calls.  The ID is logged instead so the owner can copy it
+        # straight into "Allowed Telegram User ID" in the web panel.
+        print(
+            f"[OpusBot] Ignored unauthorized request from user_id={user_id} chat_id={chat_id}. "
+            f"If that is you, add this ID to allowed_user_id in the web panel."
+        )
         return
 
     if "callback_query" in update:

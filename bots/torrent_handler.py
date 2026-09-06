@@ -1,143 +1,173 @@
 """
 Torrent and Magnet handler integrating with qBittorrent Web API v2.
-Supports magnet links, HTTP torrent URLs, .torrent file uploads, category routing,
-and live status tracking.
+
+Supports magnet links, HTTP torrent URLs, .torrent file uploads, category
+routing, and live status tracking.  All transport, authentication and version
+compatibility live in :mod:`shared.qbittorrent`; this module is the
+Telegram-facing layer on top of it.
 """
 
 import re
-import requests
-from shared import tgbot
+
+from shared import qbittorrent
+from shared.qbittorrent import (
+    QBitError,
+    error_text,
+)
 from shared.utils import escape_html, format_eta, format_size, format_speed, progress_bar
+
+# Re-exported so callers (config-web, tests) keep a single import point.
+test_qbit_connection = qbittorrent.test_connection
+diagnose_connection = qbittorrent.diagnose
+
+TV_PATTERNS = [
+    r's\d{1,2}e\d{1,2}',
+    r's\d{1,2}',
+    r'season[\s\._\-]?\d+',
+    r'episode[\s\._\-]?\d+',
+    r'complete[\s\._\-]series',
+    r'batch',
+]
+
+
+def client(cfg, force_fresh=False):
+    """Return the shared, authenticated qBittorrent client for ``cfg``."""
+    return qbittorrent.client_for(cfg, force_fresh=force_fresh)
 
 
 def qbit_session(cfg):
-    """Authenticate with qBittorrent and return an active requests.Session."""
-    q = cfg.get("qbittorrent", {})
-    host = q.get("host", "").rstrip("/")
-    user = q.get("user", "")
-    password = q.get("pass", "")
+    """Authenticate with qBittorrent and return an active requests.Session.
 
-    if not host:
-        raise ValueError("qBittorrent host is not configured.")
-
-    s = requests.Session()
-    try:
-        r = s.post(f"{host}/api/v2/auth/login", data={
-            "username": user,
-            "password": password,
-        }, timeout=10)
-    except Exception as e:
-        raise ConnectionError(f"Could not connect to qBittorrent at {host}: {e}")
-
-    if r.text.strip() != "Ok.":
-        raise PermissionError("qBittorrent authentication failed. Check username and password.")
-    return s
-
-
-def test_qbit_connection(cfg):
-    """Test qBittorrent connection and return (success: bool, message: str)."""
-    try:
-        s = qbit_session(cfg)
-        host = cfg["qbittorrent"]["host"].rstrip("/")
-        ver_r = s.get(f"{host}/api/v2/app/version", timeout=10)
-        api_ver_r = s.get(f"{host}/api/v2/app/webapiVersion", timeout=10)
-        qbit_ver = ver_r.text.strip() if ver_r.status_code == 200 else "Unknown"
-        api_ver = api_ver_r.text.strip() if api_ver_r.status_code == 200 else "v2"
-        return True, f"Connected to qBittorrent {qbit_ver} (WebAPI {api_ver})"
-    except Exception as e:
-        return False, str(e)
+    Kept for backwards compatibility.  The session is cached per credential set
+    so callers no longer trigger a fresh login -- and a fresh qBittorrent
+    "too many failed attempts" IP ban -- on every single API call.
+    """
+    qbit = client(cfg)
+    qbit.login()
+    return qbit.session
 
 
 def detect_category(text):
     """Heuristic to detect whether a torrent is a TV Show (Sonarr) or Movie (Radarr)."""
-    lower = text.lower()
-    tv_patterns = [
-        r's\d{1,2}e\d{1,2}',
-        r's\d{1,2}',
-        r'season[\s\._\-]?\d+',
-        r'episode[\s\._\-]?\d+',
-        r'complete[\s\._\-]series',
-        r'batch',
-    ]
-    for pattern in tv_patterns:
+    lower = (text or "").lower()
+    for pattern in TV_PATTERNS:
         if re.search(pattern, lower):
             return "tv-sonarr", "📺 TV Show (Sonarr)"
     return "radarr", "🎬 Movie (Radarr)"
 
 
+def add_torrent(cfg, source, category=None, filename=None):
+    """Add a magnet link, a .torrent URL or raw .torrent bytes to qBittorrent.
+
+    Returns a dict: ``{"ok", "category", "applied", "warning", "error"}`` where
+    ``applied`` tells whether qBittorrent really got the category (a category
+    that does not exist in qBittorrent makes ``torrents/add`` answer "Fails.",
+    so we retry once without it rather than losing the download).
+    """
+    q = cfg.get("qbittorrent", {})
+    savepath = (cfg.get("paths", {}) or {}).get("downloads_completed", "")
+    is_file = filename is not None
+
+    if category is None:
+        category, _ = detect_category(filename if is_file else source)
+
+    result = {"ok": False, "category": category, "applied": True, "warning": "", "error": ""}
+    qbit = client(cfg)
+
+    def _add(cat):
+        if is_file:
+            return qbit.add_torrent_files(source, filename, savepath=savepath or None, category=cat or None)
+        return qbit.add_urls(source, savepath=savepath or None, category=cat or None)
+
+    try:
+        if _add(category):
+            result["ok"] = True
+            return result
+
+        if category:
+            # Almost always "that category does not exist in qBittorrent yet".
+            if _add(""):
+                result.update({
+                    "ok": True,
+                    "applied": False,
+                    "warning": (
+                        f"qBittorrent refused the category '{category}', so the torrent was "
+                        f"added without one. Create the '{category}' category in qBittorrent "
+                        "(Categories tab) so Radarr/Sonarr can pick it up."
+                    ),
+                })
+                return result
+
+        result["error"] = (
+            f"qBittorrent rejected the torrent (HTTP response was not 'Ok.'). "
+            f"Check that {q.get('host', 'the host')} is the Web UI port and that the "
+            f"save path '{savepath}' exists inside the qBittorrent container."
+        )
+        return result
+    except QBitError as exc:
+        result["error"] = error_text(exc)
+        return result
+
+
 def add_magnet(cfg, magnet_or_url, category=None):
     """Add a magnet link or HTTP torrent link to qBittorrent."""
-    q = cfg["qbittorrent"]
-    host = q["host"].rstrip("/")
-    savepath = cfg["paths"]["downloads_completed"]
-    if category is None:
-        category, _ = detect_category(magnet_or_url)
-
-    s = qbit_session(cfg)
-    r = s.post(f"{host}/api/v2/torrents/add", data={
-        "urls": magnet_or_url,
-        "savepath": savepath,
-        "category": category,
-    }, timeout=15)
-    return r.text.strip() == "Ok."
+    return add_torrent(cfg, magnet_or_url, category=category)["ok"]
 
 
 def add_torrent_file(cfg, file_bytes, filename, category=None):
     """Upload a .torrent file directly to qBittorrent."""
-    q = cfg["qbittorrent"]
-    host = q["host"].rstrip("/")
-    savepath = cfg["paths"]["downloads_completed"]
-    if category is None:
-        category, _ = detect_category(filename)
-
-    s = qbit_session(cfg)
-    files = {
-        "torrents": (filename, file_bytes, "application/x-bittorrent"),
-    }
-    data = {
-        "savepath": savepath,
-        "category": category,
-    }
-    r = s.post(f"{host}/api/v2/torrents/add", files=files, data=data, timeout=20)
-    return r.text.strip() == "Ok."
+    return add_torrent(cfg, file_bytes, category=category, filename=filename)["ok"]
 
 
 def get_torrents(cfg, filter_mode=None):
     """Retrieve list of torrents from qBittorrent."""
-    q = cfg["qbittorrent"]
-    host = q["host"].rstrip("/")
-    s = qbit_session(cfg)
-    url = f"{host}/api/v2/torrents/info"
-    if filter_mode:
-        url += f"?filter={filter_mode}"
-    r = s.get(url, timeout=15)
-    return r.json()
+    return client(cfg).torrents_info(status_filter=filter_mode)
+
+
+def set_torrent_state(cfg, start, hashes="all"):
+    """Start (True) or stop (False) torrents. Works on qBittorrent 4.x and 5.x."""
+    return client(cfg).set_torrent_state(start, hashes=hashes)
 
 
 def pause_torrents(cfg, hashes="all"):
-    """Pause all or specific torrents."""
-    q = cfg["qbittorrent"]
-    host = q["host"].rstrip("/")
-    s = qbit_session(cfg)
-    r = s.post(f"{host}/api/v2/torrents/pause", data={"hashes": hashes}, timeout=10)
-    return r.status_code == 200
+    """Pause/stop all or specific torrents."""
+    return set_torrent_state(cfg, start=False, hashes=hashes)
 
 
 def resume_torrents(cfg, hashes="all"):
-    """Resume all or specific torrents."""
-    q = cfg["qbittorrent"]
-    host = q["host"].rstrip("/")
-    s = qbit_session(cfg)
-    r = s.post(f"{host}/api/v2/torrents/resume", data={"hashes": hashes}, timeout=10)
-    return r.status_code == 200
+    """Resume/start all or specific torrents."""
+    return set_torrent_state(cfg, start=True, hashes=hashes)
+
+
+# qBittorrent 5.x renamed these endpoints; keep the modern names available too.
+stop_torrents = pause_torrents
+start_torrents = resume_torrents
+
+
+def get_versions(cfg):
+    """Return (app_version, web_api_version) for the configured qBittorrent."""
+    return client(cfg).fetch_versions()
 
 
 def is_torrent_or_magnet(text):
     """Check if text is a magnet link or .torrent URL."""
-    clean = text.strip()
+    clean = (text or "").strip()
     return clean.startswith("magnet:?") or (
         (clean.startswith("http://") or clean.startswith("https://")) and ".torrent" in clean.lower()
     )
+
+
+def is_active_state(state):
+    """True for torrent states that mean 'working on a download' (v4 + v5)."""
+    return state in qbittorrent.DOWNLOADING_STATES
+
+
+def is_seeding_state(state):
+    return state in qbittorrent.SEEDING_STATES
+
+
+def is_stopped_state(state):
+    return state in qbittorrent.STOPPED_STATES
 
 
 def format_torrents_status(torrents, active_only=False):
@@ -149,14 +179,16 @@ def format_torrents_status(torrents, active_only=False):
     lines.append(f"<b>{'Active Downloads' if active_only else 'Torrents Overview'} ({len(torrents)}):</b>\n")
 
     for t in torrents[:10]:
-        name = escape_html(t.get("name", "Unknown")[:45])
-        progress = t.get("progress", 0.0) * 100.0
+        name = escape_html(str(t.get("name", "Unknown"))[:45])
+        try:
+            progress = float(t.get("progress", 0.0)) * 100.0
+        except (TypeError, ValueError):
+            progress = 0.0
         bar = progress_bar(progress, width=8)
         size_str = format_size(t.get("size", 0))
-        state = t.get("state", "unknown")
+        state = str(t.get("state", "unknown"))
         dl_speed = format_speed(t.get("dlspeed", 0))
-        eta_sec = t.get("eta", 8640000)
-        eta_str = format_eta(eta_sec)
+        eta_str = format_eta(t.get("eta", 8640000))
 
         cat = t.get("category", "")
         cat_badge = f" [<code>{escape_html(cat)}</code>]" if cat else ""
@@ -165,7 +197,7 @@ def format_torrents_status(torrents, active_only=False):
         if active_only or dl_speed != "0 B/s":
             lines.append(f"  [{bar}] {progress:.1f}% • {size_str} • {dl_speed} • ETA: {eta_str}")
         else:
-            lines.append(f"  [{bar}] {progress:.1f}% • {size_str} • State: <i>{state}</i>")
+            lines.append(f"  [{bar}] {progress:.1f}% • {size_str} • State: <i>{escape_html(state)}</i>")
         lines.append("")
 
     if len(torrents) > 10:
