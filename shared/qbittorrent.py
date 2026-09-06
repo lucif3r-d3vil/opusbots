@@ -715,6 +715,24 @@ class QBittorrentClient:
         response = self.post("torrents/add", data=data, files=files)
         return (response.text or "").strip().lower().startswith("ok")
 
+    # -- categories --------------------------------------------------------- #
+    def categories(self):
+        """Return qBittorrent's categories as ``{name: {"name", "savePath"}}``.
+
+        Each category can carry its own save path in qBittorrent, which is how
+        Radarr/Sonarr expect downloads to be routed.
+        """
+        data = self.get_json("torrents/categories", default={})
+        return data if isinstance(data, dict) else {}
+
+    def create_category(self, name, save_path=None):
+        """Create a category, optionally with its save path. True on success."""
+        data = {"categories": name}
+        if save_path:
+            data["savePath"] = save_path
+        response = self.post("torrents/createCategories", data=data)
+        return (response.text or "").strip().lower().startswith("ok")
+
     def set_torrent_state(self, start, hashes="all"):
         """Start/stop torrents on qBittorrent 5.x, resume/pause on 4.x.
 
