@@ -38,7 +38,7 @@ def test_is_torrent_or_magnet():
     assert not torrent_handler.is_torrent_or_magnet("")
 
 
-def test_add_magnet_passes_savepath_and_category():
+def test_add_magnet_sends_category_not_savepath():
     with patch.object(torrent_handler, "client") as mock_client:
         qbit = MagicMock()
         qbit.add_urls.return_value = True
@@ -48,7 +48,56 @@ def test_add_magnet_passes_savepath_and_category():
 
         _, kwargs = qbit.add_urls.call_args
         assert kwargs["category"] == "radarr"
-        assert kwargs["savepath"] == "/tank/Downloads/Completed"
+        assert not kwargs.get("savepath"), "an explicit savepath would override the category's save path"
+
+
+def test_missing_category_is_created_and_torrent_added_with_it():
+    with patch.object(torrent_handler, "client") as mock_client:
+        qbit = MagicMock()
+        # First add fails ("Fails." -- unknown category), retry after creating it succeeds.
+        qbit.add_urls.side_effect = [False, True]
+        qbit.categories.return_value = {"radarr": {"name": "radarr", "savePath": ""}}
+        mock_client.return_value = qbit
+
+        result = torrent_handler.add_torrent(CFG, "magnet:?xt=urn:btih:xyz", category="tv-sonarr")
+
+        assert result["ok"] is True
+        assert result["applied"] is True
+        assert result["warning"] == ""
+        qbit.create_category.assert_called_once_with("tv-sonarr")
+        assert qbit.add_urls.call_count == 2
+        for call in qbit.add_urls.call_args_list:
+            assert not call.kwargs.get("savepath")
+
+
+def test_uncreatable_category_falls_back_without_it():
+    with patch.object(torrent_handler, "client") as mock_client:
+        qbit = MagicMock()
+        # With category: refused. Retry after creating: still refused. Without: accepted.
+        qbit.add_urls.side_effect = [False, False, True]
+        qbit.categories.return_value = {"radarr": {"name": "radarr", "savePath": ""}}
+        mock_client.return_value = qbit
+
+        result = torrent_handler.add_torrent(CFG, "magnet:?xt=urn:btih:xyz", category="tv-sonarr")
+
+        assert result["ok"] is True
+        assert result["applied"] is False
+        assert "tv-sonarr" in result["warning"]
+        assert qbit.add_urls.call_args_list[-1].kwargs["category"] is None
+
+
+def test_category_endpoint_failure_still_adds_the_torrent():
+    with patch.object(torrent_handler, "client") as mock_client:
+        qbit = MagicMock()
+        qbit.add_urls.side_effect = [False, True]
+        qbit.categories.side_effect = qbittorrent.QBitError("torrents/categories not supported")
+        mock_client.return_value = qbit
+
+        result = torrent_handler.add_torrent(CFG, "magnet:?xt=urn:btih:xyz", category="tv-sonarr")
+
+        assert result["ok"] is True
+        assert result["applied"] is False
+        assert "tv-sonarr" in result["warning"]
 
 
 def test_add_torrent_file_uploads_bytes():
@@ -63,6 +112,7 @@ def test_add_torrent_file_uploads_bytes():
         assert args[0] == b"fake_torrent_bytes"
         assert args[1] == "test.torrent"
         assert kwargs["category"] == "radarr"
+        assert not kwargs.get("savepath")
 
 
 def test_add_torrent_reports_errors_instead_of_raising():

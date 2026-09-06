@@ -362,6 +362,39 @@ def test_add_urls_and_files():
     assert session.calls[3][2]["files"]["torrents"][1] == b"raw"
 
 
+def test_categories_and_create_category():
+    client, session = make_client([
+        FakeResponse(403, "Forbidden."),
+        FakeResponse(200, "Ok."),
+        FakeResponse(
+            200,
+            '{"radarr": {"name": "radarr", "savePath": "/movies"}}',
+            json_data={"radarr": {"name": "radarr", "savePath": "/movies"}},
+        ),
+        FakeResponse(200, "Ok."),
+        FakeResponse(200, "Ok."),
+    ])
+    assert client.categories() == {"radarr": {"name": "radarr", "savePath": "/movies"}}
+    assert client.create_category("tv-sonarr", save_path="/tv") is True
+    assert session.calls[3][2]["data"] == {"categories": "tv-sonarr", "savePath": "/tv"}
+
+    client, session = make_client([
+        FakeResponse(403, "Forbidden."),
+        FakeResponse(200, "Ok."),
+        FakeResponse(200, "Fails."),
+    ])
+    assert client.create_category("broken") is False
+
+
+def test_categories_survives_a_bad_body():
+    client, session = make_client([
+        FakeResponse(403, "Forbidden."),
+        FakeResponse(200, "Ok."),
+        FakeResponse(200, "<html>not json</html>"),
+    ])
+    assert client.categories() == {}
+
+
 def test_versions_are_fetched_once():
     client, session = make_client([
         FakeResponse(403, "Forbidden."),

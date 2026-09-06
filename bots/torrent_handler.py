@@ -59,13 +59,20 @@ def detect_category(text):
 def add_torrent(cfg, source, category=None, filename=None):
     """Add a magnet link, a .torrent URL or raw .torrent bytes to qBittorrent.
 
+    Torrents are routed purely by **category**: the save path is whatever the
+    category is configured with in qBittorrent (or qBittorrent's own default
+    when the category has none).  We deliberately do *not* send an explicit
+    ``savepath`` anymore -- the panel's "Torrent Downloads" path is a host path
+    that a containerized qBittorrent usually cannot see, and it would override
+    the category's save path, breaking Radarr/Sonarr routing and AutoTMM.
+
     Returns a dict: ``{"ok", "category", "applied", "warning", "error"}`` where
-    ``applied`` tells whether qBittorrent really got the category (a category
-    that does not exist in qBittorrent makes ``torrents/add`` answer "Fails.",
-    so we retry once without it rather than losing the download).
+    ``applied`` tells whether qBittorrent really got the category.  A category
+    that does not exist yet makes ``torrents/add`` answer "Fails."; we create
+    the category and retry once rather than dropping the torrent into the
+    default folder.
     """
     q = cfg.get("qbittorrent", {})
-    savepath = (cfg.get("paths", {}) or {}).get("downloads_completed", "")
     is_file = filename is not None
 
     if category is None:
@@ -76,8 +83,8 @@ def add_torrent(cfg, source, category=None, filename=None):
 
     def _add(cat):
         if is_file:
-            return qbit.add_torrent_files(source, filename, savepath=savepath or None, category=cat or None)
-        return qbit.add_urls(source, savepath=savepath or None, category=cat or None)
+            return qbit.add_torrent_files(source, filename, category=cat or None)
+        return qbit.add_urls(source, category=cat or None)
 
     try:
         if _add(category):
@@ -85,7 +92,19 @@ def add_torrent(cfg, source, category=None, filename=None):
             return result
 
         if category:
-            # Almost always "that category does not exist in qBittorrent yet".
+            # "Fails." almost always means the category does not exist in
+            # qBittorrent yet.  Create it and retry once, so the torrent lands
+            # where Radarr/Sonarr expect it instead of the default folder.
+            try:
+                if category not in qbit.categories():
+                    qbit.create_category(category)
+                if _add(category):
+                    result["ok"] = True
+                    return result
+            except QBitError:
+                pass  # fall through: add it without the category
+
+            # Last resort -- qBittorrent's default save path applies.
             if _add(""):
                 result.update({
                     "ok": True,
@@ -93,15 +112,15 @@ def add_torrent(cfg, source, category=None, filename=None):
                     "warning": (
                         f"qBittorrent refused the category '{category}', so the torrent was "
                         f"added without one. Create the '{category}' category in qBittorrent "
-                        "(Categories tab) so Radarr/Sonarr can pick it up."
+                        "(Categories tab, with its save path) so Radarr/Sonarr can pick it up."
                     ),
                 })
                 return result
 
         result["error"] = (
             f"qBittorrent rejected the torrent (HTTP response was not 'Ok.'). "
-            f"Check that {q.get('host', 'the host')} is the Web UI port and that the "
-            f"save path '{savepath}' exists inside the qBittorrent container."
+            f"Check that {q.get('host', 'the host')} is the Web UI port and that qBittorrent's "
+            f"default save path (Tools > Options > Downloads) exists inside the qBittorrent container."
         )
         return result
     except QBitError as exc:

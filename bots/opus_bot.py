@@ -431,10 +431,13 @@ def handle_message(update, cfg, token):
         tgbot.send_chat_action(token, chat_id, "typing")
         result = torrent_handler.add_torrent(cfg, text, category=category)
         if result["ok"]:
+            destination = (
+                "category save path in qBittorrent" if result["applied"] else "qBittorrent default save path"
+            )
             body = (
                 f"✅ <b>Added to qBittorrent!</b>\n\n"
                 f"📂 Category: <b>{cat_label}</b> (<code>{escape_html(result['category'] if result['applied'] else 'none')}</code>)\n"
-                f"📍 Destination: <code>{escape_html(cfg['paths']['downloads_completed'])}</code>\n\n"
+                f"📍 Destination: <i>{destination}</i>\n\n"
                 f"Use /status to monitor download progress."
             )
             if result.get("warning"):
@@ -524,12 +527,15 @@ def handle_media_upload(msg, cfg, token, chat_id):
             category, cat_label = torrent_handler.detect_category(fname)
             result = torrent_handler.add_torrent(cfg, file_bytes, category=category, filename=fname)
             if result["ok"]:
+                destination = (
+                    "category save path in qBittorrent" if result["applied"] else "qBittorrent default save path"
+                )
                 body = (
                     f"✅ <b>Torrent File Added to qBittorrent!</b>\n\n"
                     f"📄 File: <code>{escape_html(fname)}</code>\n"
                     f"📂 Category: <b>{cat_label}</b> "
                     f"(<code>{escape_html(result['category'] if result['applied'] else 'none')}</code>)\n"
-                    f"📍 Save path: <code>{escape_html(cfg['paths']['downloads_completed'])}</code>\n\n"
+                    f"📍 Destination: <i>{destination}</i>\n\n"
                     f"Use /status to track progress."
                 )
                 if result.get("warning"):
