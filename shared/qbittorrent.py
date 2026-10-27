@@ -249,6 +249,12 @@ _login_failures = {}
 _cache_lock = threading.RLock()
 
 
+def _add_accepted(response):
+    """torrents/add answers "Ok."/"Fails."; proxies may turn "Ok." into an empty 2xx."""
+    body = (response.text or "").strip().lower()
+    return body.startswith("ok") or (200 <= response.status_code < 300 and not body)
+
+
 def _make_error(cls, message, hint=""):
     err = cls(message)
     err.hint = hint
@@ -557,6 +563,15 @@ class QBittorrentClient:
             self._fail(_make_error(
                 QBitBannedError, text[:200] or "qBittorrent has banned this IP address.", BAN_HINT,
             ))
+        if 200 <= response.status_code < 300 and not lowered.startswith("fails") and "<html" not in lowered:
+            # Reverse proxies (nginx/Traefik/Caddy, Authelia, ...) often rewrite qBittorrent's
+            # "200 Ok." into "204 No Content" or an empty/odd body while still passing the
+            # session cookie through.  The body proves nothing, so ask the API instead.
+            if self._session_is_authorized():
+                self._logged_in = True
+                self.auth_bypassed = False
+                _clear_failure(self.key)
+                return
         if response.status_code == 403:
             # A 403 that is not about credentials: qBittorrent rejected the
             # request itself (host header validation, domain list, ...).
@@ -589,10 +604,33 @@ class QBittorrentClient:
                 "A reverse proxy is answering instead of qBittorrent. Set 'URL Base' to the "
                 "sub-path qBittorrent is served from.",
             ))
+        if getattr(response, "history", None):
+            self._fail(_make_error(
+                QBitConnectionError,
+                f"The login POST was redirected to {response.url} (HTTP {response.status_code}).",
+                "A redirect turns the login into a GET and it fails. Put the final address in "
+                "Host instead (usually https:// when your reverse proxy forces TLS), and keep "
+                "the URL Base if there is one.",
+            ))
         self._fail(_make_error(
             QBitAuthError,
-            f"Unexpected qBittorrent login response (HTTP {response.status_code}): {text[:120]}",
+            f"Unexpected qBittorrent login response (HTTP {response.status_code}): {text[:120] or 'empty body'}",
+            "The login was answered but did not give this client a working session. If a "
+            "reverse proxy is in front, make sure it passes the Set-Cookie header through "
+            "and that Host/URL Base match; an https proxy needs https:// in Host, not http://.",
         ))
+
+    def _session_is_authorized(self):
+        """True when the cookies we hold now get a real answer from app/version."""
+        try:
+            check = self._send("GET", "app/version")
+        except requests.RequestException:
+            return False
+        body = (check.text or "").strip()
+        if check.status_code == 200 and _VERSION_RE.match(body):
+            self.app_version = body
+            return True
+        return False
 
     def _fail(self, error, cooldown=LOGIN_COOLDOWN):
         """Record the back-off for this credential set and raise."""
@@ -701,7 +739,7 @@ class QBittorrentClient:
             data["tags"] = tags
         data.update(extra)
         response = self.post("torrents/add", data=data)
-        return (response.text or "").strip().lower().startswith("ok")
+        return _add_accepted(response)
 
     def add_torrent_files(self, file_bytes, filename, savepath=None, category=None, tags=None):
         data = {}
@@ -713,7 +751,7 @@ class QBittorrentClient:
             data["tags"] = tags
         files = {"torrents": (filename, file_bytes, "application/x-bittorrent")}
         response = self.post("torrents/add", data=data, files=files)
-        return (response.text or "").strip().lower().startswith("ok")
+        return _add_accepted(response)
 
     def set_torrent_state(self, start, hashes="all"):
         """Start/stop torrents on qBittorrent 5.x, resume/pause on 4.x.
@@ -736,7 +774,7 @@ class QBittorrentClient:
                 self._uses_start_stop = endpoint not in modern
                 continue
             self._uses_start_stop = endpoint in modern
-            return response.status_code == 200
+            return 200 <= response.status_code < 300
 
         raise _make_error(
             QBitNotFoundError,

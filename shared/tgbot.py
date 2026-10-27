@@ -176,10 +176,10 @@ def get_updates(token, offset, timeout=30):
         if data.get("ok"):
             return data.get("result", [])
         print(f"getUpdates returned not ok: {data.get('description')}")
-        return []
     except Exception as e:
         print(f"getUpdates network error: {e}")
-        return []
+    time.sleep(5)  # back off; otherwise an outage or bad token spins the CPU and the log
+    return []
 
 
 def run_polling(get_token, process_fn, bot_name="OpusBot", stop_event=None):

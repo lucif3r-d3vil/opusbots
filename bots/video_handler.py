@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 
 from shared import tgbot
 from shared.utils import escape_html, format_size, sanitize_filename
@@ -112,7 +113,7 @@ def build_resolution_keyboard(formats, query_id):
 
 def download_video_task(token, cfg, url, fmt_id, res_label, title_safe, chat_id, msg_id=None, height=None):
     """Execute video download and move to Movies directory."""
-    download_id = f"{chat_id}_{int(time.time())}"
+    download_id = f"{chat_id}_{uuid.uuid4().hex[:8]}"
     dest_folder = cfg["paths"]["movies"]
     os.makedirs(dest_folder, exist_ok=True)
 

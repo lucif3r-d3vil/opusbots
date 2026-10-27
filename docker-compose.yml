@@ -39,4 +39,5 @@ services:
       # Docker socket allows restarting the bot container from the web UI.
       - /var/run/docker.sock:/var/run/docker.sock
     env_file:
-      - .env
+      - path: .env
+        required: false  # without it a strong admin password is generated and logged

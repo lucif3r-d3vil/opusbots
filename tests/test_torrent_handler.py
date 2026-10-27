@@ -138,3 +138,10 @@ def test_format_torrents_status_survives_junk_values():
 def test_format_torrents_status_empty():
     assert "No active torrents" in torrent_handler.format_torrents_status([], active_only=True)
     assert "No torrents found" in torrent_handler.format_torrents_status([])
+
+
+def test_detect_category_ignores_magnet_tracker_noise():
+    magnet = "magnet:?xt=urn:btih:abc&dn=Inception.2010.1080p&tr=udp%3A%2F%2Fs1.tracker.example%3A80"
+    assert torrent_handler.detect_category(magnet)[0] == "radarr"
+    assert torrent_handler.detect_category("magnet:?xt=urn:btih:abc&dn=Show.S02E03.720p")[0] == "tv-sonarr"
+    assert torrent_handler.detect_category("Dispatch.2020.1080p")[0] == "radarr"

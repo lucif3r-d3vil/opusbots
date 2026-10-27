@@ -126,6 +126,30 @@ def get_help_text(section="main"):
     )
 
 
+def show_video_picker(token, chat_id, msg_id, url):
+    """Look up the formats of ``url`` and replace message ``msg_id`` with a quality picker."""
+    try:
+        title, title_safe, formats, duration = video_handler.get_video_formats(url)
+        if not formats:
+            tgbot.edit_message(token, chat_id, msg_id, "❌ No downloadable video streams found for this link.")
+            return
+        query_id = str(uuid.uuid4())[:8]
+        video_handler.pending_video_requests[query_id] = {
+            "url": url,
+            "title": title,
+            "title_safe": title_safe,
+            "formats": formats,
+            "chat_id": chat_id,
+        }
+        tgbot.edit_message(
+            token, chat_id, msg_id,
+            f"🎬 <b>{escape_html(title)}</b>\n⏱️ Duration: {escape_html(duration)}\n\nSelect video quality:",
+            reply_markup=video_handler.build_resolution_keyboard(formats, query_id),
+        )
+    except Exception as e:
+        tgbot.edit_message(token, chat_id, msg_id, f"❌ Failed to extract video formats:\n<code>{escape_html(str(e)[:250])}</code>")
+
+
 def handle_callback(update, cfg, token):
     """Handle all inline keyboard callback queries."""
     cb = update["callback_query"]
@@ -179,7 +203,7 @@ def handle_callback(update, cfg, token):
         choice_type = parts[1]
         link_id = parts[2]
 
-        item = pending_media_links.get(link_id)
+        item = pending_media_links.pop(link_id, None)
         if not item:
             tgbot.edit_message(token, chat_id, msg_id, "<i>Request expired. Please send the link again.</i>")
             return
@@ -187,7 +211,6 @@ def handle_callback(update, cfg, token):
         url = item["url"]
 
         if choice_type == "cancel":
-            pending_media_links.pop(link_id, None)
             tgbot.edit_message(token, chat_id, msg_id, "❌ Cancelled.")
             return
 
@@ -219,29 +242,7 @@ def handle_callback(update, cfg, token):
             return
 
         if choice_type == "video":
-            tgbot.edit_message(token, chat_id, msg_id, "🔍 <i>Analyzing available video resolutions...</i>")
-            try:
-                title, title_safe, formats, duration = video_handler.get_video_formats(url)
-                if not formats:
-                    tgbot.edit_message(token, chat_id, msg_id, "❌ No downloadable video streams found for this link.")
-                    return
-
-                query_id = str(uuid.uuid4())[:8]
-                video_handler.pending_video_requests[query_id] = {
-                    "url": url,
-                    "title": title,
-                    "title_safe": title_safe,
-                    "formats": formats,
-                    "chat_id": chat_id,
-                }
-                kb = video_handler.build_resolution_keyboard(formats, query_id)
-                tgbot.edit_message(
-                    token, chat_id, msg_id,
-                    f"🎬 <b>{escape_html(title)}</b>\n⏱️ Duration: {escape_html(duration)}\n\nSelect video quality:",
-                    reply_markup=kb,
-                )
-            except Exception as e:
-                tgbot.edit_message(token, chat_id, msg_id, f"❌ Failed to extract video formats:\n<code>{escape_html(str(e)[:250])}</code>")
+            show_video_picker(token, chat_id, msg_id, url)
             return
 
     # 4. Video Resolution Selection
@@ -280,7 +281,6 @@ def handle_message(update, cfg, token):
     """Handle regular messages (commands, text links, uploaded files)."""
     msg = update["message"]
     chat_id = msg["chat"]["id"]
-    user_id = msg.get("from", {}).get("id", 0)
 
     # Check for document or media upload
     if "document" in msg or "video" in msg or "audio" in msg:
@@ -295,15 +295,7 @@ def handle_message(update, cfg, token):
 
     # Commands
     if text in ["/start", "/help"]:
-        allowed_id = get_allowed_user_id(cfg)
-        user_warning = ""
-        if allowed_id == 0:
-            user_warning = (
-                f"\n\n⚠️ <b>Setup Warning:</b> Bot is not locked to a Telegram User ID.\n"
-                f"Your User ID is: <code>{user_id}</code>\n"
-                f"Set this in the Web Config (http://server:8090) to secure your bot."
-            )
-        tgbot.send(token, chat_id, get_help_text("main") + user_warning, reply_markup=build_help_keyboard())
+        tgbot.send(token, chat_id, get_help_text("main"), reply_markup=build_help_keyboard())
         return
 
     if text in ["/status", "/dashboard"]:
@@ -360,28 +352,7 @@ def handle_message(update, cfg, token):
             tgbot.send(token, chat_id, "ℹ️ Usage: <code>/video &lt;URL&gt;</code> — or just paste a video link for the picker.")
             return
         msg_id = tgbot.send(token, chat_id, "🔍 <i>Analyzing available video resolutions...</i>")
-        try:
-            title, title_safe, formats, duration = video_handler.get_video_formats(url)
-            if not formats:
-                tgbot.edit_message(token, chat_id, msg_id, "❌ No downloadable video streams found for this link.")
-                return
-
-            query_id = str(uuid.uuid4())[:8]
-            video_handler.pending_video_requests[query_id] = {
-                "url": url,
-                "title": title,
-                "title_safe": title_safe,
-                "formats": formats,
-                "chat_id": chat_id,
-            }
-            kb = video_handler.build_resolution_keyboard(formats, query_id)
-            tgbot.edit_message(
-                token, chat_id, msg_id,
-                f"🎬 <b>{escape_html(title)}</b>\n⏱️ Duration: {escape_html(duration)}\n\nSelect video quality:",
-                reply_markup=kb,
-            )
-        except Exception as e:
-            tgbot.edit_message(token, chat_id, msg_id, f"❌ Failed to extract video formats:\n<code>{escape_html(str(e)[:250])}</code>")
+        show_video_picker(token, chat_id, msg_id, url)
         return
 
     # Direct Music Commands
@@ -618,6 +589,17 @@ def process_update(update, cfg, token):
             f"[OpusBot] Ignored unauthorized request from user_id={user_id} chat_id={chat_id}. "
             f"If that is you, add this ID to allowed_user_id in the web panel."
         )
+        return
+
+    if get_allowed_user_id(cfg) == 0:
+        # Unclaimed bot: anyone could be messaging it, so never run commands.
+        # Just tell the sender their ID so the owner can paste it into the panel.
+        if chat_id:
+            tgbot.send(
+                token, chat_id,
+                f"👋 This bot is not locked to an owner yet.\n\nYour Telegram user ID is: <code>{user_id}</code>\n"
+                "Paste it into <b>Allowed Telegram User ID</b> in the web panel (port 8090) and save."
+            )
         return
 
     if "callback_query" in update:

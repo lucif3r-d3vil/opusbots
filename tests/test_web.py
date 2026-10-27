@@ -220,3 +220,32 @@ def test_restart_routes(client):
     resp = client.post("/restart/fake-bot", follow_redirects=True)
     assert resp.status_code == 200
     assert b"Unknown container requested" in resp.data
+
+
+def test_forwarded_header_cannot_dodge_login_throttle(client):
+    for i in range(web_app.LOGIN_MAX_ATTEMPTS):
+        client.post("/login", data={"username": "admin", "password": "x"},
+                    headers={"X-Forwarded-For": f"10.0.0.{i}"})
+    resp = client.post("/login", data={"username": "admin", "password": "secret123"},
+                       headers={"X-Forwarded-For": "10.9.9.9"})
+    assert resp.status_code == 429
+
+
+def test_cross_site_post_is_blocked(client):
+    client.post("/login", data={"username": "admin", "password": "secret123"})
+    resp = client.post("/restart-all", headers={"Sec-Fetch-Site": "cross-site"})
+    assert resp.status_code == 403
+
+
+def test_dashboard_shows_getting_started_until_configured(client):
+    client.post("/login", data={"username": "admin", "password": "secret123"})
+    assert b"Getting started" in client.get("/").data
+    client.post("/save", data={"bot_token": "1:t", "allowed_user_id": "5"})
+    assert b"Getting started" not in client.get("/").data
+
+
+def test_restart_all_reports_failures(client):
+    client.post("/login", data={"username": "admin", "password": "secret123"})
+    with patch.object(web_app, "_restart", return_value=["opus-bot: boom"]):
+        resp = client.post("/restart-all", follow_redirects=True)
+    assert b"opus-bot: boom" in resp.data

@@ -11,7 +11,7 @@
     --panel-header: #171a21;
     --line: #23262e;
     --text: #d7dae0;
-    --muted: #63697a;
+    --muted: #8b91a3;
     --accent: #5eead4;
     --accent-hover: #38bdf8;
     --error: #f47174;
@@ -69,6 +69,17 @@
   .row { display: flex; gap: 1rem; }
   .row > div { flex: 1; }
   .row > div.grow-2 { flex: 2.2; }
+  @media (max-width: 520px) { .row { flex-direction: column; gap: 0; } body { padding: 1.5rem .75rem; } }
+  .steps { margin: 0; padding: 0; list-style: none; font-size: .8rem; line-height: 1.6; }
+  .steps li { padding: .35rem 0; color: var(--muted); }
+  .steps li.done { color: var(--ok); }
+  .steps li::before { content: "○ "; }
+  .steps li.done::before { content: "✓ "; }
+  .steps b { color: var(--text); font-weight: 600; }
+  .token-row { position: relative; }
+  .token-row input { padding-right: 3.5rem; }
+  .token-row .btn-test { position: absolute; right: 0; top: .1rem; }
+  button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .hint { font-size: .7rem; color: var(--muted); margin-top: -.7rem; margin-bottom: 1.1rem; line-height: 1.5; }
   .hint code, .preview code { color: var(--accent); background: rgba(94,234,212,.08); padding: 0 .25rem; border-radius: 2px; }
   .preview { font-size: .7rem; color: var(--muted); margin: -.4rem 0 1.1rem; }
@@ -136,6 +147,17 @@
     {% endfor %}
   {% endwith %}
 
+  {% if not (setup.token and setup.user) %}
+  <div class="section">
+    <div class="section-header"><h2>Getting started</h2></div>
+    <ol class="steps">
+      <li class="{{ 'done' if setup.token }}"><b>Create a bot:</b> message <code>@BotFather</code> in Telegram, send <code>/newbot</code>, and paste the token below.</li>
+      <li class="{{ 'done' if setup.user }}"><b>Lock it to you:</b> save the token, send <code>/start</code> to your new bot, and it replies with your numeric user ID. Paste that below. Until then the bot only answers with your ID.</li>
+      <li class="{{ 'done' if setup.qbit }}"><b>Optional:</b> add your qBittorrent address to enable torrents. Music and video downloads work without it.</li>
+    </ol>
+  </div>
+  {% endif %}
+
   <form method="post" action="{{ url_for('save') }}" id="configForm">
     <!-- Telegram Section -->
     <div class="section">
@@ -146,12 +168,15 @@
       <div id="tg-test-result" class="test-result"></div>
 
       <label for="bot_token">Bot Token (Single Telegram Bot)</label>
-      <input type="text" id="bot_token" name="bot_token" value="{{ bot_token }}" placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ" autocomplete="off" spellcheck="false">
+      <div class="token-row">
+        <input type="password" id="bot_token" name="bot_token" value="{{ bot_token }}" placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn-test" onclick="toggleToken(this)">Show</button>
+      </div>
       <div class="hint">Your bot token from @BotFather. Used for torrents, movies, and music.</div>
 
       <label for="allowed_user_id">Allowed Telegram User ID</label>
       <input type="text" id="allowed_user_id" name="allowed_user_id" value="{{ cfg.telegram.allowed_user_id or '' }}" placeholder="e.g. 123456789" inputmode="numeric" autocomplete="off">
-      <div class="hint">Only this Telegram user ID can command the bot (0 = setup mode; anyone messaging the bot is ignored and their ID is written to the container log).</div>
+      <div class="hint">Only this Telegram user ID can command the bot Leave empty while setting up: the bot then answers every message with the sender's ID and nothing else. Set it before you use the bot.</div>
     </div>
 
     <!-- qBittorrent Section -->
@@ -238,7 +263,7 @@
     <div class="hint" style="margin-top: 0;">Restart services if required. Config edits apply automatically without restarting.</div>
     <div class="restart-row">
       {% for c in containers %}
-      <form method="post" action="{{ url_for('restart', container=c) }}">
+      <form method="post" action="{{ url_for('restart', container=c) }}"{% if c == 'config-web' %} onsubmit="return confirm('This restarts the panel itself; the page will reload when it is back.')"{% endif %}>
         <button type="submit" class="btn-ghost">Restart {{ c }}</button>
       </form>
       {% endfor %}
@@ -250,6 +275,13 @@
 </div>
 
 <script>
+function toggleToken(btn) {
+  const input = document.getElementById('bot_token');
+  const hidden = input.type === 'password';
+  input.type = hidden ? 'text' : 'password';
+  btn.textContent = hidden ? 'Hide' : 'Show';
+}
+
 function show(el, cls, text) {
   el.className = 'test-result ' + cls;
   el.style.display = 'block';

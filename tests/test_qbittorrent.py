@@ -501,3 +501,27 @@ def test_get_configured_url():
     assert qbittorrent.get_configured_url(CFG) == "http://10.0.0.9:8080"
     assert qbittorrent.get_configured_url({"qbittorrent": {"host": ""}}) == ""
     assert qbittorrent.get_configured_url({}) == ""
+
+
+def test_login_with_204_from_a_reverse_proxy_is_verified_not_rejected():
+    # Probe -> 403, login -> 204 (proxy ate the "Ok." body), version check -> 200.
+    client, _ = make_client([FakeResponse(403, "Forbidden."), FakeResponse(204, ""),
+                             FakeResponse(200, "v5.1.0")])
+    assert client.login() is True
+    assert client.app_version == "v5.1.0"
+    assert client.auth_bypassed is False
+
+
+def test_204_login_without_a_working_session_explains_the_proxy_problem():
+    client, _ = make_client([FakeResponse(403, "Forbidden."), FakeResponse(204, ""),
+                             FakeResponse(403, "Forbidden.")])
+    with pytest.raises(QBitAuthError) as excinfo:
+        client.login()
+    assert "HTTP 204" in str(excinfo.value)
+    assert "Set-Cookie" in excinfo.value.hint
+
+
+def test_add_and_start_accept_empty_2xx_answers():
+    client, _ = make_client([FakeResponse(200, "v5.1.0"), FakeResponse(204, ""), FakeResponse(204, "")])
+    assert client.add_urls("magnet:?xt=urn:btih:abc") is True
+    assert client.set_torrent_state(True) is True

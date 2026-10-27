@@ -235,3 +235,22 @@ def test_qbit_command_reports_diagnosis():
         assert "connection failed" in text
         assert "http://192.168.1.50:30024" in text
         assert "Re-check them" in text
+
+
+def test_unclaimed_bot_only_reveals_user_id():
+    cfg = {"telegram": {"allowed_user_id": 0, "bot_token": "T"}}
+    update = {"message": {"from": {"id": 42}, "chat": {"id": 42}, "text": "/torrents"}}
+    with patch("bots.opus_bot.tgbot.send") as send, patch("bots.opus_bot.handle_message") as handler:
+        opus_bot.process_update(update, cfg, "T")
+    handler.assert_not_called()
+    assert "<code>42</code>" in send.call_args[0][2]
+
+
+def test_link_choice_buttons_work_once():
+    opus_bot.pending_media_links["abc"] = {"url": "https://youtu.be/x", "timestamp": 1e18}
+    update = {"callback_query": {"id": "1", "data": "choice:mp3:abc",
+                                 "message": {"chat": {"id": 1}, "message_id": 2}}}
+    with patch("bots.opus_bot.tgbot"), patch("bots.opus_bot.music_handler.enqueue_job") as enqueue:
+        opus_bot.handle_callback(update, {}, "T")
+        opus_bot.handle_callback(update, {}, "T")
+    assert enqueue.call_count == 1

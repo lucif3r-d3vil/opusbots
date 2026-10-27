@@ -205,9 +205,11 @@ Open your browser at:
 http://<server-ip>:8090
 ```
 
-Log in with your `ADMIN_USER` and `ADMIN_PASS`. Configure:
+Log in with your `ADMIN_USER` and `ADMIN_PASS`. (No `.env`, or no `ADMIN_PASS` in it? A strong password is
+generated on first start and printed in `docker logs config-web`.) The panel's **Getting started** card walks
+you through the first two steps below. Configure:
 - **Telegram Bot Token**: Created via [@BotFather](https://t.me/BotFather) on Telegram.
-- **Allowed Telegram User ID**: Your Telegram numerical user ID (e.g. from [@userinfobot](https://t.me/userinfobot)).
+- **Allowed Telegram User ID**: Your Telegram numerical user ID. Save the token first, then send `/start` to your bot: until an ID is set it replies with the sender's ID and ignores everything else.
 - **qBittorrent Host & Port**: exactly what you enter in Radarr/Sonarr (qBittorrent ▸ Tools ▸ Options ▸ Web User Interface).
 - **qBittorrent Username & Password**: Your qBittorrent Web UI credentials.
 - **Advanced (optional)**: *URL Base* for a reverse-proxied qBittorrent, and *Verify TLS certificate* (untick for self-signed https).

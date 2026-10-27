@@ -9,7 +9,7 @@
     --panel: #111318;
     --line: #23262e;
     --text: #d7dae0;
-    --muted: #63697a;
+    --muted: #8b91a3;
     --accent: #5eead4;
     --error: #f47174;
   }
@@ -82,6 +82,10 @@
       <input type="password" id="password" name="password" autocomplete="current-password" required>
       <button type="submit">sign in</button>
     </form>
+    <p style="font-size:.7rem;color:var(--muted);margin:1.2rem 0 0;line-height:1.5">
+      Credentials are <code>ADMIN_USER</code> / <code>ADMIN_PASS</code> from your <code>.env</code>.
+      If you never set a password, one was generated: run <code>docker logs config-web</code>.
+    </p>
   </div>
 </body>
 </html>

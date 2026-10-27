@@ -8,6 +8,7 @@ Telegram-facing layer on top of it.
 """
 
 import re
+from urllib.parse import parse_qs, urlparse
 
 from shared import qbittorrent
 from shared.qbittorrent import (
@@ -21,12 +22,12 @@ test_qbit_connection = qbittorrent.test_connection
 diagnose_connection = qbittorrent.diagnose
 
 TV_PATTERNS = [
-    r's\d{1,2}e\d{1,2}',
-    r's\d{1,2}',
+    r'(?<![a-z])s\d{1,2}e\d{1,2}',
+    r'(?<![a-z])s\d{1,2}(?!\d)',
     r'season[\s\._\-]?\d+',
     r'episode[\s\._\-]?\d+',
     r'complete[\s\._\-]series',
-    r'batch',
+    r'(?<![a-z])batch(?![a-z])',
 ]
 
 
@@ -49,7 +50,12 @@ def qbit_session(cfg):
 
 def detect_category(text):
     """Heuristic to detect whether a torrent is a TV Show (Sonarr) or Movie (Radarr)."""
-    lower = (text or "").lower()
+    text = text or ""
+    if text.startswith("magnet:"):
+        # Only the display name says anything about the content; the rest is
+        # hashes and tracker URLs that can contain "s1"-like fragments.
+        text = parse_qs(urlparse(text).query).get("dn", [""])[0]
+    lower = text.lower()
     for pattern in TV_PATTERNS:
         if re.search(pattern, lower):
             return "tv-sonarr", "📺 TV Show (Sonarr)"
