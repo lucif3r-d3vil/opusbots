@@ -13,7 +13,9 @@ It faithfully reproduces the bits that matter:
 * the IP ban after five failed logins (HTTP 403),
 * qBittorrent 5.x (``torrents/stop|start``, Web API 2.11.x) versus 4.x
   (``torrents/pause|resume``),
-* "bypass authentication" mode, where no login is needed at all.
+* "bypass authentication" mode, where no login is needed at all,
+* categories: ``torrents/categories`` / ``torrents/createCategories``, and
+  ``torrents/add`` answering "Fails." for a category that does not exist.
 """
 
 import argparse
@@ -36,6 +38,7 @@ DEFAULTS = {
     "sessions": set(),
     "requests": [],
     "known_categories": {"radarr", "tv-sonarr"},
+    "fail_create_categories": False,
 }
 
 TORRENTS = [
@@ -93,6 +96,15 @@ class FakeQBit(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         return self.rfile.read(length).decode("utf-8", "replace") if length else ""
 
+    def _form(self, body):
+        """Parse an urlencoded form body into a dict."""
+        params = {}
+        for pair in (body or "").split("&"):
+            if "=" in pair:
+                key, _, value = pair.partition("=")
+                params[unquote_plus(key)] = unquote_plus(value)
+        return params
+
     # -- routes ------------------------------------------------------------ #
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -112,6 +124,10 @@ class FakeQBit(BaseHTTPRequestHandler):
             return self._reply(200, self.state["api_version"])
         if path == "/api/v2/torrents/info":
             return self._reply(200, json.dumps(TORRENTS).encode())
+        if path == "/api/v2/torrents/categories":
+            payload = {name: {"name": name, "savePath": ""}
+                       for name in sorted(self.state["known_categories"])}
+            return self._reply(200, json.dumps(payload).encode())
         return self._reply(404, "Not Found.")
 
     def do_POST(self):
@@ -147,9 +163,23 @@ class FakeQBit(BaseHTTPRequestHandler):
 
         if path == "/api/v2/torrents/add":
             # multipart uploads are not parsed here; the form fields the tests
-            # care about (category) arrive urlencoded.
-            if "category=does-not-exist" in body:
+            # care about (category) arrive urlencoded.  Like the real server,
+            # adding with a category that does not exist answers "Fails.".
+            if "multipart/form-data" not in (self.headers.get("Content-Type") or ""):
+                params = self._form(body)
+                category = params.get("category", "")
+                if category and category not in self.state["known_categories"]:
+                    return self._reply(200, "Fails.")
+            return self._reply(200, "Ok.")
+
+        if path == "/api/v2/torrents/createCategories":
+            if self.state.get("fail_create_categories"):
                 return self._reply(200, "Fails.")
+            params = self._form(body)
+            for name in params.get("categories", "").split("\n"):
+                name = name.strip()
+                if name:
+                    self.state["known_categories"].add(name)
             return self._reply(200, "Ok.")
 
         modern = path in ("/api/v2/torrents/stop", "/api/v2/torrents/start")

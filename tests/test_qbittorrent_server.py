@@ -9,7 +9,8 @@ These reproduce the real world failure modes that used to be reported as a bare
   API call,
 * qBittorrent 5.x renaming ``torrents/pause|resume`` to ``torrents/stop|start``,
 * authentication bypass for whitelisted subnets,
-* a category that does not exist in qBittorrent.
+* a category that does not exist in qBittorrent (it gets created, and the add
+  retried, instead of silently dropping the category).
 
 The server itself lives in tests/fake_qbittorrent.py so it can also be started
 standalone while working on the config panel.
@@ -235,12 +236,36 @@ def test_add_magnet_reports_connection_error(qbit_server):
     assert "username or password" in result["error"]
 
 
-def test_unknown_category_falls_back_with_warning(qbit_server):
+def test_unknown_category_is_created_and_torrent_added_with_it(qbit_server):
     cfg = cfg_for(qbit_server)
     result = torrent_handler.add_torrent(cfg, "magnet:?xt=urn:btih:deadbeef", category="does-not-exist")
     assert result["ok"] is True
-    assert result["applied"] is False
-    assert "does-not-exist" in result["warning"]
+    assert result["applied"] is True
+    assert result["warning"] == ""
+    assert "does-not-exist" in FakeQBit.state["known_categories"]
+    assert "POST /api/v2/torrents/createCategories" in FakeQBit.state["requests"]
+    adds = requests_to(qbit_server, "POST /api/v2/torrents/add")
+    assert len(adds) == 2  # refused once, then accepted once the category existed
+
+
+def test_uncreatable_category_falls_back_with_warning():
+    server = start_server(fail_create_categories=True)
+    try:
+        cfg = cfg_for(server)
+        result = torrent_handler.add_torrent(cfg, "magnet:?xt=urn:btih:deadbeef", category="does-not-exist")
+        assert result["ok"] is True
+        assert result["applied"] is False
+        assert "does-not-exist" in result["warning"]
+        assert "does-not-exist" not in FakeQBit.state["known_categories"]
+    finally:
+        stop_server(server)
+
+
+def test_known_category_adds_without_a_roundtrip(qbit_server):
+    cfg = cfg_for(qbit_server)
+    assert torrent_handler.add_magnet(cfg, "magnet:?xt=urn:btih:deadbeef", category="radarr") is True
+    adds = requests_to(qbit_server, "POST /api/v2/torrents/add")
+    assert len(adds) == 1  # no category dance for a category that already exists
 
 
 def test_state_helpers_cover_v4_and_v5_names():
